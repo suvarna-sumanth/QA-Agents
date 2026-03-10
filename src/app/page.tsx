@@ -7,10 +7,11 @@ import {
   AlertTriangle, 
   Cpu,
   BarChart3,
-  Waves,
   Loader2,
   Terminal,
-  BrainCircuit
+  BrainCircuit,
+  Search,
+  Eye
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -29,13 +30,22 @@ import { Progress } from "@/components/ui/progress";
 import { useEffect, useState, useRef } from "react";
 import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
 
 // Mock data for initial state
 const INITIAL_RUNS = [
-  { id: 'run-1', site: 'the-hill', agent: 'Honey Grace', status: 'completed', wer: 0.02, health: 98 },
-  { id: 'run-2', site: 'reuters', agent: 'Shivani', status: 'completed', wer: 0.05, health: 92 },
-  { id: 'run-3', site: 'fortune', agent: 'Honey Grace', status: 'completed', wer: 0.03, health: 95 },
-  { id: 'run-4', site: 'verge', agent: 'Shivani', status: 'completed', wer: 0.12, health: 85 },
+  { id: 'run-1', site: 'the-hill', agent: 'Honey Grace', status: 'completed', wer: 0.02, health: 98, title: "House passes major spending bill" },
+  { id: 'run-2', site: 'reuters', agent: 'Shivani', status: 'completed', wer: 0.05, health: 92, title: "Global markets rally on tech news" },
+  { id: 'run-3', site: 'fortune', agent: 'Honey Grace', status: 'completed', wer: 0.03, health: 95, title: "Fortune 500: New leaders emerge" },
+  { id: 'run-4', site: 'verge', agent: 'Shivani', status: 'completed', wer: 0.12, health: 85, title: "AI hardware review: The future is now" },
 ];
 
 export default function DashboardPage() {
@@ -44,7 +54,8 @@ export default function DashboardPage() {
   const [runs, setRuns] = useState(INITIAL_RUNS);
   const [isSimulating, setIsSimulating] = useState(false);
   const [agentLogs, setAgentLogs] = useState<string[]>(["[SYSTEM] Dashboard initialized. Swarm ready."]);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalyzeAudioTextDiscrepanciesOutput | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -66,7 +77,8 @@ export default function DashboardPage() {
           agent: 'Shivani', 
           status: 'pending', 
           wer: 0, 
-          health: 0 
+          health: 0,
+          title: "Processing Article..."
         };
         
         setRuns(prev => [pendingRun, ...prev].slice(0, 6));
@@ -76,13 +88,12 @@ export default function DashboardPage() {
         
         setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on ${randomSite} article...`]), 1000);
         setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]), 2500);
-        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Analysis complete. High fidelity (WER 0.04) detected.`]), 4000);
+        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Analysis complete. High fidelity detected.`]), 4000);
 
-        // Complete the run after 5 seconds
         setTimeout(() => {
           setRuns(currentRuns => currentRuns.map(r => 
             r.id === newId 
-              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace' } 
+              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace', title: "Automated verification successful" } 
               : r
           ));
           setIsSimulating(false);
@@ -93,6 +104,22 @@ export default function DashboardPage() {
 
     return () => clearInterval(interval);
   }, [isSimulating]);
+
+  const handleDeepDive = async (run: typeof INITIAL_RUNS[0]) => {
+    setIsAnalyzing(true);
+    try {
+      // Real call to the GenAI flow!
+      const result = await analyzeAudioTextDiscrepancies({
+        transcribedAudioText: "The house representatives passed a significant spend bill on Tuesday...",
+        finetunedArticleText: "The House of Representatives has passed a significant spending bill on Tuesday, aiming to avert a government shutdown..."
+      });
+      setSelectedAnalysis(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   if (isUserLoading || !user) {
     return (
@@ -109,38 +136,15 @@ export default function DashboardPage() {
       <SidebarInset className="bg-background/50">
         <div className="flex flex-col flex-1 p-6 gap-6">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold font-headline text-foreground">Dashboard Overview</h1>
+            <h1 className="text-3xl font-bold font-headline text-foreground">Overview</h1>
             <p className="text-muted-foreground">Monitor real-time QA automation results across your publisher ecosystem.</p>
           </header>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard 
-              title="Total Sites" 
-              value="42" 
-              icon={Globe} 
-              description="Active publishers"
-            />
-            <StatCard 
-              title="Success Rate" 
-              value="94.2%" 
-              icon={CheckCircle2} 
-              trend={{ value: 1.2, isUp: true }}
-              description="Avg. Health"
-            />
-            <StatCard 
-              title="Active Bugs" 
-              value="7" 
-              icon={AlertTriangle} 
-              trend={{ value: 3, isUp: false }}
-              description="Requiring review"
-            />
-            <StatCard 
-              title="Agent Swarm" 
-              value={isSimulating ? "Active" : "Standby"} 
-              icon={Cpu} 
-              className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""}
-              description={isSimulating ? "Processing tasks..." : "Ready for tasking"}
-            />
+            <StatCard title="Total Sites" value="42" icon={Globe} description="Active publishers" />
+            <StatCard title="Success Rate" value="94.2%" icon={CheckCircle2} trend={{ value: 1.2, isUp: true }} description="Avg. Health" />
+            <StatCard title="Active Bugs" value="7" icon={AlertTriangle} trend={{ value: 3, isUp: false }} description="Requiring review" />
+            <StatCard title="Agent Swarm" value={isSimulating ? "Active" : "Standby"} icon={Cpu} className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""} description={isSimulating ? "Processing tasks..." : "Ready for tasking"} />
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
@@ -157,48 +161,38 @@ export default function DashboardPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Site</TableHead>
-                      <TableHead>Agent</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Metrics</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {runs.map((run) => (
                       <TableRow key={run.id}>
-                        <TableCell className="font-medium capitalize">
-                          {run.site.replace('-', ' ')}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={run.status === 'pending' ? "border-primary/20 bg-primary/5 text-primary" : "border-accent/20 bg-accent/5 text-accent"}>
-                            {run.agent}
-                          </Badge>
+                        <TableCell className="space-y-1">
+                          <div className="font-bold capitalize">{run.site.replace('-', ' ')}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">{run.title}</div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {run.status === 'pending' ? (
-                              <>
-                                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                                <span className="text-sm">Analyzing...</span>
-                              </>
+                              <Badge variant="secondary" className="animate-pulse">Analyzing...</Badge>
                             ) : (
-                              <>
-                                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                                <span className="text-sm font-medium text-emerald-600">Completed</span>
-                              </>
+                              <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
+                              </Badge>
                             )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          {run.status === 'pending' ? (
-                            <div className="flex justify-end">
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-end">
-                              <span className="text-xs font-bold">WER: {run.wer}</span>
-                              <Progress value={run.health} className="h-1 w-16" />
-                            </div>
-                          )}
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            disabled={run.status === 'pending' || isAnalyzing}
+                            onClick={() => handleDeepDive(run)}
+                          >
+                            {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
+                            Analysis
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -245,14 +239,66 @@ export default function DashboardPage() {
                     <Badge variant="outline" className="text-emerald-500 border-emerald-500/20 bg-emerald-500/5">Nominal</Badge>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">GenAI Latency</span>
-                    <span className="font-bold">242ms</span>
+                    <span className="text-muted-foreground font-medium">GenAI Active</span>
+                    <span className="font-bold text-accent">Gemini 2.5 Flash</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
           </div>
         </div>
+
+        <Dialog open={!!selectedAnalysis} onOpenChange={() => setSelectedAnalysis(null)}>
+          <DialogContent className="max-w-2xl overflow-hidden">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BrainCircuit className="h-5 w-5 text-accent" />
+                Honey Grace - GenAI Reasoning
+              </DialogTitle>
+              <DialogDescription>
+                Detailed comparison between transcribed audio and canonical article body.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-muted-foreground uppercase">Word Error Rate</span>
+                  <div className="text-2xl font-bold">{selectedAnalysis?.wordErrorRateEstimate}</div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-muted-foreground uppercase">Semantic Similarity</span>
+                  <div className="text-2xl font-bold">{Math.round((selectedAnalysis?.semanticSimilarityScore || 0) * 100)}%</div>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <h4 className="text-sm font-bold uppercase text-primary">AI Executive Summary</h4>
+                <p className="text-sm bg-muted p-3 rounded-md italic">"{selectedAnalysis?.summary}"</p>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold uppercase text-rose-600">Missing Content</h4>
+                  <ul className="text-xs space-y-1">
+                    {selectedAnalysis?.missingContent.map((c, i) => (
+                      <li key={i} className="flex gap-2"><span className="text-rose-400">•</span> {c}</li>
+                    ))}
+                    {selectedAnalysis?.missingContent.length === 0 && <li className="text-muted-foreground italic">None detected</li>}
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-bold uppercase text-amber-600">Pronunciation Issues</h4>
+                  <ul className="text-xs space-y-1">
+                    {selectedAnalysis?.pronunciationIssues.map((c, i) => (
+                      <li key={i} className="flex gap-2"><span className="text-amber-400">•</span> {c}</li>
+                    ))}
+                    {selectedAnalysis?.pronunciationIssues.length === 0 && <li className="text-muted-foreground italic">None detected</li>}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </SidebarInset>
     </SidebarProvider>
   );
