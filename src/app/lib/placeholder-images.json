@@ -9,27 +9,27 @@
     },
     {
       "id": "player-screenshot-loading",
-      "description": "Audio player in loading state",
-      "imageUrl": "https://picsum.photos/seed/load/800/450",
-      "imageHint": "audio player"
+      "description": "Shivani: Loading State (850ms)",
+      "imageUrl": "https://picsum.photos/seed/progress/800/450",
+      "imageHint": "loading progress"
     },
     {
       "id": "player-screenshot-playing",
-      "description": "Audio player in playing state",
-      "imageUrl": "https://picsum.photos/seed/play/800/450",
-      "imageHint": "music player"
+      "description": "Shivani: Waveform active verification",
+      "imageUrl": "https://picsum.photos/seed/wave/800/450",
+      "imageHint": "audio wave"
     },
     {
       "id": "ad-screenshot",
-      "description": "Advertisement playing in audio player",
-      "imageUrl": "https://picsum.photos/seed/ad/800/450",
-      "imageHint": "video advertisement"
+      "description": "Shivani: Ad slot visibility detection",
+      "imageUrl": "https://picsum.photos/seed/sponsored/800/450",
+      "imageHint": "advertisement banner"
     },
     {
       "id": "error-state",
       "description": "Player in error state",
       "imageUrl": "https://picsum.photos/seed/error/800/450",
-      "imageHint": "broken computer"
+      "imageHint": "system error"
     }
   ]
 }
