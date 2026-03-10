@@ -1,3 +1,4 @@
+
 "use client";
 
 import { 
@@ -7,7 +8,9 @@ import {
   Cpu,
   BarChart3,
   Waves,
-  Loader2
+  Loader2,
+  Terminal,
+  BrainCircuit
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -23,8 +26,9 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Mock data for initial state
 const INITIAL_RUNS = [
@@ -39,18 +43,18 @@ export default function DashboardPage() {
   const { user, isUserLoading } = useUser();
   const [runs, setRuns] = useState(INITIAL_RUNS);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [agentLogs, setAgentLogs] = useState<string[]>(["[SYSTEM] Dashboard initialized. Swarm ready."]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 1. Handle Automatic Anonymous Sign-in for context
   useEffect(() => {
     if (!isUserLoading && !user) {
       initiateAnonymousSignIn(auth);
     }
   }, [user, isUserLoading, auth]);
 
-  // 2. Simulate Background Agent Activity
+  // Simulate Background Agent Activity
   useEffect(() => {
     const interval = setInterval(() => {
-      // Occasionally add a "pending" run to simulate live activity
       if (Math.random() > 0.7 && !isSimulating) {
         const newId = `run-${Date.now()}`;
         const sites = ['the-hill', 'reuters', 'fortune', 'verge', 'marketwatch'];
@@ -67,6 +71,12 @@ export default function DashboardPage() {
         
         setRuns(prev => [pendingRun, ...prev].slice(0, 6));
         setIsSimulating(true);
+        
+        setAgentLogs(prev => [...prev, `[ORCHESTRATOR] Dispatching agents to ${randomSite}...`]);
+        
+        setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on ${randomSite} article...`]), 1000);
+        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]), 2500);
+        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Analysis complete. High fidelity (WER 0.04) detected.`]), 4000);
 
         // Complete the run after 5 seconds
         setTimeout(() => {
@@ -76,6 +86,7 @@ export default function DashboardPage() {
               : r
           ));
           setIsSimulating(false);
+          setAgentLogs(prev => [...prev, `[SYSTEM] QA Run ${newId.slice(-4)} finalized. Results synced.`]);
         }, 5000);
       }
     }, 8000);
@@ -87,7 +98,7 @@ export default function DashboardPage() {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="text-muted-foreground font-medium">Initializing QA Environment...</p>
+        <p className="text-muted-foreground font-medium">Initializing Swarm Environment...</p>
       </div>
     );
   }
@@ -124,10 +135,11 @@ export default function DashboardPage() {
               description="Requiring review"
             />
             <StatCard 
-              title="Agent Load" 
-              value={isSimulating ? "82%" : "64%"} 
+              title="Agent Swarm" 
+              value={isSimulating ? "Active" : "Standby"} 
               icon={Cpu} 
-              description="System utilization"
+              className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""}
+              description={isSimulating ? "Processing tasks..." : "Ready for tasking"}
             />
           </div>
 
@@ -166,7 +178,7 @@ export default function DashboardPage() {
                             {run.status === 'pending' ? (
                               <>
                                 <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                                <span className="text-sm">In Progress...</span>
+                                <span className="text-sm">Analyzing...</span>
                               </>
                             ) : (
                               <>
@@ -178,7 +190,9 @@ export default function DashboardPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           {run.status === 'pending' ? (
-                            <span className="text-xs text-muted-foreground italic">Analyzing...</span>
+                            <div className="flex justify-end">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            </div>
                           ) : (
                             <div className="flex flex-col items-end">
                               <span className="text-xs font-bold">WER: {run.wer}</span>
@@ -193,52 +207,50 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="lg:col-span-3 border-none shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Waves className="h-5 w-5 text-accent" />
-                  Agent Swarm Health
-                </CardTitle>
-                <CardDescription>Status of worker nodes.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Shivani Workers</span>
-                    <span className="text-muted-foreground">8/8 Active</span>
-                  </div>
-                  <Progress value={100} className="h-2 bg-muted" />
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                      <div key={i} className="h-3 w-3 rounded-sm bg-emerald-500" />
-                    ))}
-                  </div>
-                </div>
+            <div className="lg:col-span-3 space-y-6">
+              <Card className="border-none shadow-sm bg-sidebar text-sidebar-foreground">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-primary">
+                    <Terminal className="h-5 w-5" />
+                    Agent Swarm Log
+                  </CardTitle>
+                  <CardDescription className="text-sidebar-foreground/60">Live execution telemetry.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-[280px] w-full rounded-md border border-sidebar-border bg-black/20 p-4">
+                    <div className="space-y-2 font-code text-xs">
+                      {agentLogs.map((log, i) => (
+                        <div key={i} className="flex gap-2">
+                          <span className="text-emerald-500 shrink-0">➜</span>
+                          <span className={log.startsWith('[SYSTEM]') ? 'text-primary' : 'text-sidebar-foreground/80'}>
+                            {log}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Honey Grace Workers</span>
-                    <span className="text-muted-foreground">9/10 Active</span>
+              <Card className="border-none shadow-sm bg-accent/10 border border-accent/20">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <BrainCircuit className="h-4 w-4 text-accent" />
+                    System Status
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                   <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground font-medium">Connectivity</span>
+                    <Badge variant="outline" className="text-emerald-500 border-emerald-500/20 bg-emerald-500/5">Nominal</Badge>
                   </div>
-                  <Progress value={90} className="h-2" />
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-                      <div key={i} className="h-3 w-3 rounded-sm bg-emerald-500" />
-                    ))}
-                    <div className="h-3 w-3 rounded-sm bg-rose-500 animate-pulse" />
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground font-medium">GenAI Latency</span>
+                    <span className="font-bold">242ms</span>
                   </div>
-                </div>
-
-                <div className="p-4 rounded-lg bg-accent/5 border border-accent/10 space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-accent">Status Update</h4>
-                  <p className="text-sm text-foreground/80">
-                    {isSimulating 
-                      ? "Swarm is currently processing playback telemetry for selected articles." 
-                      : "Swarm standby. All agents ready for task assignment."}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </SidebarInset>
