@@ -1,4 +1,3 @@
-
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -15,8 +14,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { useFirestore, useUser } from "@/firebase";
-import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore";
+import { useFirestore, useUser, setDocumentNonBlocking } from "@/firebase";
+import { doc } from "firebase/firestore";
 import { useState } from "react";
 
 const publishers = [
@@ -33,7 +32,7 @@ export default function SitesPage() {
   const { user } = useUser();
   const [running, setRunning] = useState<string | null>(null);
 
-  const handleRunQA = async (siteId: string, siteName: string) => {
+  const handleRunQA = (siteId: string, siteName: string) => {
     if (!user) {
       toast({
         variant: "destructive",
@@ -64,19 +63,15 @@ export default function SitesPage() {
       audioTestsFailedCount: 0,
     };
 
-    try {
-      // Non-blocking write per guidelines
-      setDoc(runRef, runData);
-      
-      toast({
-        title: "QA Run Triggered",
-        description: `Shivani and Honey Grace agents are now testing ${siteName}.`,
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTimeout(() => setRunning(null), 1000);
-    }
+    // Use non-blocking helper per guidelines
+    setDocumentNonBlocking(runRef, runData, { merge: true });
+    
+    toast({
+      title: "QA Run Triggered",
+      description: `Shivani and Honey Grace agents are now testing ${siteName}.`,
+    });
+
+    setTimeout(() => setRunning(null), 1000);
   };
 
   return (

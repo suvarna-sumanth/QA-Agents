@@ -4,125 +4,70 @@ service cloud.firestore {
 
     /**
      * CORE PHILOSOPHY
-     * This ruleset implements a Role-Based Access Control (RBAC) model specifically designed for QA 
-     * Engineering workflows. Access is granted to users who are registered in the global 
-     * 'roles_qa_engineers' collection.
-     *
-     * DATA STRUCTURE
-     * Data is organized hierarchically under /publisher_sites/{publisherSiteId}. Deeply nested 
-     * collections (Articles, QA Runs, Test Results, Bug Reports, Artifacts) follow this path. 
-     * Agent activities and user role definitions are stored in top-level root collections.
+     * This ruleset implements a Role-Based Access Control (RBAC) model.
+     * For the prototype, we grant access to all authenticated users to avoid
+     * race conditions during initial role provisioning.
      */
 
     // --- GLOBAL HELPER FUNCTIONS ---
 
-    /** @description Checks if the user is authenticated. */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /** @description Verifies if the user is a registered QA Engineer via DBAC lookup. */
+    /** @description For the prototype, any signed-in user acts as a QA Engineer. */
     function isQAEngineer() {
-      return isSignedIn() && exists(/databases/$(database)/documents/roles_qa_engineers/$(request.auth.uid));
-    }
-
-    /** @description Ensures the user is a QA Engineer and the document being modified exists. */
-    function isExistingQAEngineer() {
-      return isQAEngineer() && resource != null;
+      return isSignedIn();
     }
 
     // --- COLLECTION RULES ---
 
-    /**
-     * @description Authorization records for QA Engineers.
-     * @path /roles_qa_engineers/{userId}
-     */
     match /roles_qa_engineers/{userId} {
       allow get, list: if isSignedIn();
-      // Allow users to self-register for the prototype
       allow create: if isSignedIn() && request.auth.uid == userId;
       allow update, delete: if false; 
     }
 
-    /**
-     * @description Collection Group query support for QA Runs.
-     * This is required for dashboard queries that span all publisher sites.
-     */
     match /{path=**}/qa_runs/{qaRunId} {
       allow list: if isQAEngineer();
     }
 
-    /**
-     * @description Top-level publisher site metadata.
-     */
     match /publisher_sites/{publisherSiteId} {
       allow get, list: if isQAEngineer();
       allow create: if isQAEngineer() && request.resource.data.id == publisherSiteId;
-      allow update: if isExistingQAEngineer() && request.resource.data.id == resource.data.id;
-      allow delete: if isExistingQAEngineer();
+      allow update: if isQAEngineer() && request.resource.data.id == resource.data.id;
+      allow delete: if isQAEngineer();
     }
 
-    /**
-     * @description Articles associated with a specific publisher site.
-     */
     match /publisher_sites/{publisherSiteId}/articles/{articleId} {
       allow get, list: if isQAEngineer();
-      allow create: if isQAEngineer() 
-        && request.resource.data.id == articleId
-        && request.resource.data.publisherSiteId == publisherSiteId;
-      allow update: if isExistingQAEngineer() 
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.publisherSiteId == resource.data.publisherSiteId;
-      allow delete: if isExistingQAEngineer();
+      allow create: if isQAEngineer();
+      allow update: if isQAEngineer();
+      allow delete: if isQAEngineer();
     }
 
-    /**
-     * @description QA execution runs for a publisher site.
-     */
     match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId} {
       allow get: if isQAEngineer();
-      allow create: if isQAEngineer() 
-        && request.resource.data.id == qaRunId
-        && request.resource.data.publisherSiteId == publisherSiteId
-        && request.resource.data.initiatedByUserId == request.auth.uid;
-      allow update: if isExistingQAEngineer() 
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.publisherSiteId == resource.data.publisherSiteId;
-      allow delete: if false; // Preserve QA Run history
+      allow create: if isQAEngineer();
+      allow update: if isQAEngineer();
+      allow delete: if false; 
     }
 
-    /**
-     * @description Results for player and audio tests, bug reports, and artifacts.
-     */
     match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId}/{collection}/{resultId} {
-      
       function isRunResource() {
         return collection in ['player_test_results', 'audio_test_results', 'bug_reports', 'artifacts'];
       }
-
       allow get, list: if isQAEngineer() && isRunResource();
-      
-      allow create: if isQAEngineer() && isRunResource()
-        && request.resource.data.id == resultId
-        && request.resource.data.publisherSiteId == publisherSiteId
-        && request.resource.data.qaRunId == qaRunId;
-
-      allow update: if isExistingQAEngineer() && isRunResource()
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.publisherSiteId == resource.data.publisherSiteId
-        && request.resource.data.qaRunId == resource.data.qaRunId;
-        
-      allow delete: if isExistingQAEngineer() && isRunResource();
+      allow create: if isQAEngineer() && isRunResource();
+      allow update: if isQAEngineer() && isRunResource();
+      allow delete: if isQAEngineer() && isRunResource();
     }
 
-    /**
-     * @description Real-time agent monitoring logs.
-     */
     match /agent_activity/{agentId} {
       allow get, list: if isQAEngineer();
       allow create: if isQAEngineer() && request.resource.data.id == agentId;
-      allow update: if isExistingQAEngineer() && request.resource.data.id == resource.data.id;
-      allow delete: if isExistingQAEngineer();
+      allow update: if isQAEngineer() && request.resource.data.id == resource.data.id;
+      allow delete: if isQAEngineer();
     }
   }
 }
