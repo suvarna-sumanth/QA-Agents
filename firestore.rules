@@ -1,19 +1,19 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     /**
      * PROTOTYPE RULES
      * Allows all authenticated users full access to all documents.
+     * This includes direct paths and collection group queries.
      */
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
 
     /**
-     * COLLECTION GROUP RULES
-     * Explicitly allow collectionGroup queries for the 'qa_runs' and 'articles' collections.
-     * This is required for dashboard queries that aggregate data across all publisher sites.
+     * Explicit Collection Group matches.
+     * These are often required for group queries (like list operations on 'qa_runs')
+     * to satisfy security checks when querying across the entire database hierarchy.
      */
     match /{path=**}/qa_runs/{runId} {
       allow read: if request.auth != null;
@@ -24,14 +24,6 @@ service cloud.firestore {
     }
     
     match /{path=**}/player_test_results/{resultId} {
-      allow read: if request.auth != null;
-    }
-    
-    match /{path=**}/audio_test_results/{resultId} {
-      allow read: if request.auth != null;
-    }
-    
-    match /{path=**}/bug_reports/{reportId} {
       allow read: if request.auth != null;
     }
   }
