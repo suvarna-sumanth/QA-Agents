@@ -16,7 +16,8 @@ import {
   ArrowRight,
   Globe,
   Settings,
-  Cpu
+  Cpu,
+  HeartPulse
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -211,7 +212,7 @@ export default function DashboardPage() {
               className={pendingRuns.length > 0 ? "ring-2 ring-primary/20 bg-primary/5" : ""}
             />
             <StatCard title="Article Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest synced articles" />
-            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse || Activity} description="Functional uptime" />
+            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse} description="Functional uptime" />
             <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcript match" />
           </div>
 
