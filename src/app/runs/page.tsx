@@ -16,8 +16,8 @@ import {
   HeartPulse
 } from "lucide-react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { useEffect, useState } from "react";
-import { collectionGroup, query, orderBy, limit } from "firebase/firestore";
+import { useEffect, useState, useMemo } from "react";
+import { collectionGroup, query, limit } from "firebase/firestore";
 
 export default function RunsPage() {
   const auth = useAuth();
@@ -35,18 +35,24 @@ export default function RunsPage() {
   // Extended buffer after auth to ensure security rules are synchronized across the prototype swarm
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 3000); 
+      const timer = setTimeout(() => setIsReady(true), 3500); 
       return () => clearTimeout(timer);
     }
   }, [user]);
 
-  // Gated query - only fire when authenticated and readiness buffer has elapsed
+  // Gated query - removed orderBy to avoid composite index requirement which triggers false permission errors
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(50));
+    return query(collectionGroup(db, 'qa_runs'), limit(100));
   }, [db, user, isReady]);
 
-  const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
+  const { data: rawRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
+
+  // Client-side sorting
+  const firestoreRuns = useMemo(() => {
+    if (!rawRuns) return [];
+    return [...rawRuns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [rawRuns]);
 
   return (
     <SidebarProvider>

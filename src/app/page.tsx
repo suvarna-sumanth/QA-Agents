@@ -13,10 +13,7 @@ import {
   History,
   PlusCircle,
   Database,
-  ArrowRight,
   Globe,
-  Settings,
-  Cpu,
   HeartPulse
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -32,7 +29,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase, setDocumentNonBlocking } from "@/firebase";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -44,7 +41,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
-import { collectionGroup, query, orderBy, limit, doc } from "firebase/firestore";
+import { collectionGroup, query, limit, doc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardPage() {
@@ -66,24 +63,35 @@ export default function DashboardPage() {
   // Extended buffer after auth to ensure security rules are synchronized across the prototype swarm
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 2500);
+      const timer = setTimeout(() => setIsReady(true), 3000);
       return () => clearTimeout(timer);
     }
   }, [user]);
 
-  // Gated queries - only fire when authenticated and ready
+  // Gated queries - removed orderBy to avoid index requirement on collectionGroup which often triggers permission errors
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(15));
+    return query(collectionGroup(db, 'qa_runs'), limit(30));
   }, [db, user, isReady]);
   
   const articlesQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    return query(collectionGroup(db, 'articles'), orderBy('createdAt', 'desc'), limit(10));
+    return query(collectionGroup(db, 'articles'), limit(20));
   }, [db, user, isReady]);
 
-  const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
-  const { data: latestArticles, isLoading: isArticlesLoading } = useCollection(articlesQuery);
+  const { data: rawRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
+  const { data: rawArticles, isLoading: isArticlesLoading } = useCollection(articlesQuery);
+
+  // Client-side sorting
+  const firestoreRuns = useMemo(() => {
+    if (!rawRuns) return [];
+    return [...rawRuns].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [rawRuns]);
+
+  const latestArticles = useMemo(() => {
+    if (!rawArticles) return [];
+    return [...rawArticles].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [rawArticles]);
 
   const handleSeedData = () => {
     if (!user || !db) return;
@@ -309,7 +317,7 @@ export default function DashboardPage() {
                         <span className="text-emerald-500 shrink-0">➜</span>
                         <span className="text-primary font-bold">[SYSTEM] Swarm initialization complete.</span>
                       </div>
-                      {firestoreRuns?.filter(r => r.status === 'pending').map((run, i) => (
+                      {firestoreRuns?.filter((r: any) => r.status === 'pending').map((run: any, i: number) => (
                         <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3 mb-2">
                           <div className="flex gap-2 text-accent">
                             <span className="shrink-0">➜</span>
