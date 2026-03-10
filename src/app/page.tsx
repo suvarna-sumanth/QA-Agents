@@ -10,7 +10,6 @@ import {
   PlusCircle,
   Globe,
   HeartPulse,
-  ExternalLink,
   ChevronRight,
   Zap,
   LayoutDashboard
@@ -40,7 +39,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 1000);
+      const timer = setTimeout(() => setIsReady(true), 1500);
       return () => clearTimeout(timer);
     }
   }, [user]);
@@ -91,7 +90,7 @@ export default function DashboardPage() {
                 <ShieldCheck className="h-8 w-8 text-primary" />
                 QA Command Center
               </h1>
-              <p className="text-muted-foreground">Monitor real-time agent audits and coverage metrics across publishers.</p>
+              <p className="text-muted-foreground">Monitor real-time agent audits and article coverage across publishers.</p>
             </div>
             <Link href="/sites">
               <Button variant="default" className="gap-2 bg-accent hover:bg-accent/90">
@@ -105,12 +104,12 @@ export default function DashboardPage() {
               title="Active Audits" 
               value={activeRuns.length} 
               icon={Activity} 
-              description="Live agent tasks" 
+              description="Live swarm tasks" 
               className={activeRuns.length > 0 ? "ring-2 ring-primary/20 bg-primary/5" : ""}
             />
-            <StatCard title="Articles Synced" value={latestArticles?.length || 0} icon={FileText} description="Total discovered" />
-            <StatCard title="Global Health" value={`${firestoreRuns.length > 0 ? 100 - failedRuns.length : 100}%`} icon={HeartPulse} description="Functional uptime" />
-            <StatCard title="Fidelity Avg" value="98.2%" icon={Volume2} description="Global transcription" />
+            <StatCard title="Article Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest synced articles" />
+            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse} description="Functional uptime" />
+            <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcript match" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12">
@@ -120,7 +119,7 @@ export default function DashboardPage() {
                   <div className="space-y-1">
                     <CardTitle className="text-lg flex items-center gap-2 text-primary">
                       <Zap className="h-5 w-5" />
-                      Live Swarm Activity
+                      Live Swarm Telemetry
                     </CardTitle>
                     <CardDescription>Real-time tasks being performed by Shivani and Honey Grace.</CardDescription>
                   </div>
@@ -132,9 +131,9 @@ export default function DashboardPage() {
                   {!firestoreRuns || firestoreRuns.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center opacity-40">
                       <LayoutDashboard className="h-10 w-10 mb-2" />
-                      <p className="text-sm font-medium">No active tasks found.</p>
+                      <p className="text-sm font-medium">No telemetry detected.</p>
                       <Link href="/sites">
-                        <Button variant="link" size="sm" className="mt-1">Add a site to start auditing</Button>
+                        <Button variant="link" size="sm" className="mt-1">Add a site to start discovery</Button>
                       </Link>
                     </div>
                   ) : (
@@ -147,10 +146,10 @@ export default function DashboardPage() {
                             </Badge>
                             <span className="text-[10px] text-muted-foreground font-code truncate">{run.articleUrl}</span>
                           </div>
-                          <h4 className="font-bold text-sm truncate pr-4">{run.articleTitle || "Loading article..."}</h4>
+                          <h4 className="font-bold text-sm truncate pr-4">{run.articleTitle || "Processing article..."}</h4>
                           <div className="flex items-center gap-2 text-[10px] text-accent font-medium">
                             <Activity className={`h-2.5 w-2.5 ${run.status !== 'completed' ? 'animate-pulse' : ''}`} />
-                            {run.currentTask}
+                            {run.currentTask || "Initializing audit sequence..."}
                           </div>
                         </div>
                         <Link href="/runs">
@@ -201,17 +200,20 @@ export default function DashboardPage() {
                 <CardContent className="space-y-4">
                   <div className="flex justify-between items-center text-sm">
                     <span className="opacity-80">Worker Swarm</span>
-                    <span className="font-bold">Active (8)</span>
+                    <span className="font-bold">Active ({activeRuns.length})</span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="opacity-80">Queue Depth</span>
-                    <span className="font-bold">{activeRuns.length}</span>
+                    <span className="font-bold">{activeRuns.length} articles</span>
                   </div>
                   <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden">
-                    <div className={`h-full bg-white transition-all duration-1000 ${activeRuns.length > 0 ? 'w-full animate-pulse' : 'w-0'}`} />
+                    <div 
+                      className="h-full bg-white transition-all duration-1000" 
+                      style={{ width: activeRuns.length > 0 ? '100%' : '0%' }}
+                    />
                   </div>
                   <p className="text-[10px] italic opacity-70">
-                    Audits are triggered manually. The swarm is standing by for new article discovery tasks.
+                    Audits are user-initiated. The swarm is standing by for new article discovery tasks.
                   </p>
                 </CardContent>
               </Card>
