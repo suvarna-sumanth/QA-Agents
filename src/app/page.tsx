@@ -11,7 +11,8 @@ import {
   Terminal,
   BrainCircuit,
   Search,
-  Eye
+  Eye,
+  FileText
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -27,7 +28,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
+
+// Mock article titles for variety
+const ARTICLE_TITLES = [
+  "House passes major spending bill to avert shutdown",
+  "Global markets rally on unexpected tech sector growth",
+  "New study reveals shift in consumer digital habits",
+  "Fortune 500: New leadership trends for 2024",
+  "The future of AI hardware: A comprehensive review",
+  "Bipartisan infrastructure agreement reaches final stages",
+  "Inflation data beats expectations for third month",
+  "SpaceX successfully launches next-gen satellite array",
+];
 
 // Mock data for initial state
 const INITIAL_RUNS = [
@@ -70,6 +83,7 @@ export default function DashboardPage() {
         const newId = `run-${Date.now()}`;
         const sites = ['the-hill', 'reuters', 'fortune', 'verge', 'marketwatch'];
         const randomSite = sites[Math.floor(Math.random() * sites.length)];
+        const randomTitle = ARTICLE_TITLES[Math.floor(Math.random() * ARTICLE_TITLES.length)];
         
         const pendingRun = { 
           id: newId, 
@@ -78,26 +92,26 @@ export default function DashboardPage() {
           status: 'pending', 
           wer: 0, 
           health: 0,
-          title: "Processing Article..."
+          title: randomTitle
         };
         
         setRuns(prev => [pendingRun, ...prev].slice(0, 6));
         setIsSimulating(true);
         
-        setAgentLogs(prev => [...prev, `[ORCHESTRATOR] Dispatching agents to ${randomSite}...`]);
+        setAgentLogs(prev => [...prev, `[ORCHESTRATOR] Dispatching swarm to ${randomSite}...`, `[SYSTEM] Target: "${randomTitle}"`]);
         
-        setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on ${randomSite} article...`]), 1000);
+        setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on article page...`]), 1000);
         setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]), 2500);
         setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Analysis complete. High fidelity detected.`]), 4000);
 
         setTimeout(() => {
           setRuns(currentRuns => currentRuns.map(r => 
             r.id === newId 
-              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace', title: "Automated verification successful" } 
+              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace' } 
               : r
           ));
           setIsSimulating(false);
-          setAgentLogs(prev => [...prev, `[SYSTEM] QA Run ${newId.slice(-4)} finalized. Results synced.`]);
+          setAgentLogs(prev => [...prev, `[SYSTEM] QA Run ${newId.slice(-4)} finalized for "${randomTitle.substring(0, 20)}..."`]);
         }, 5000);
       }
     }, 8000);
@@ -108,10 +122,9 @@ export default function DashboardPage() {
   const handleDeepDive = async (run: typeof INITIAL_RUNS[0]) => {
     setIsAnalyzing(true);
     try {
-      // Real call to the GenAI flow!
       const result = await analyzeAudioTextDiscrepancies({
-        transcribedAudioText: "The house representatives passed a significant spend bill on Tuesday...",
-        finetunedArticleText: "The House of Representatives has passed a significant spending bill on Tuesday, aiming to avert a government shutdown..."
+        transcribedAudioText: `The article titled "${run.title}" was processed. The house representatives passed a significant spend bill on Tuesday...`,
+        finetunedArticleText: `The article titled "${run.title}" was processed. The House of Representatives has passed a significant spending bill on Tuesday, aiming to avert a government shutdown...`
       });
       setSelectedAnalysis(result);
     } catch (e) {
@@ -160,7 +173,7 @@ export default function DashboardPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Site</TableHead>
+                      <TableHead>Target Information</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
@@ -168,14 +181,17 @@ export default function DashboardPage() {
                   <TableBody>
                     {runs.map((run) => (
                       <TableRow key={run.id}>
-                        <TableCell className="space-y-1">
-                          <div className="font-bold capitalize">{run.site.replace('-', ' ')}</div>
-                          <div className="text-xs text-muted-foreground truncate max-w-[200px]">{run.title}</div>
+                        <TableCell className="space-y-1 py-4">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{run.site.replace('-', ' ')}</span>
+                          </div>
+                          <div className="font-semibold text-sm line-clamp-1">{run.title}</div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {run.status === 'pending' ? (
-                              <Badge variant="secondary" className="animate-pulse">Analyzing...</Badge>
+                              <Badge variant="secondary" className="animate-pulse bg-primary/10 text-primary border-primary/20">Analyzing...</Badge>
                             ) : (
                               <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
                                 <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
@@ -212,7 +228,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="h-[280px] w-full rounded-md border border-sidebar-border bg-black/20 p-4">
-                    <div className="space-y-2 font-code text-xs">
+                    <div className="space-y-2 font-code text-[10px] md:text-xs">
                       {agentLogs.map((log, i) => (
                         <div key={i} className="flex gap-2">
                           <span className="text-emerald-500 shrink-0">➜</span>
