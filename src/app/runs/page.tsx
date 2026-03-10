@@ -12,9 +12,7 @@ import {
   Loader2,
   AlertCircle,
   FileText,
-  Activity,
   Volume2,
-  ShieldCheck,
   HeartPulse
 } from "lucide-react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -34,10 +32,10 @@ export default function RunsPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Buffer after auth to ensure security rules are synchronized across the prototype swarm
+  // Extended buffer after auth to ensure security rules are synchronized across the prototype swarm
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 2000); 
+      const timer = setTimeout(() => setIsReady(true), 3000); 
       return () => clearTimeout(timer);
     }
   }, [user]);

@@ -46,7 +46,6 @@ import {
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
 import { collectionGroup, query, orderBy, limit, doc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { Progress } from "@/components/ui/progress";
 
 export default function DashboardPage() {
   const auth = useAuth();
@@ -64,10 +63,10 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Buffer after auth to ensure security rules are synchronized across the swarm
+  // Extended buffer after auth to ensure security rules are synchronized across the prototype swarm
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 1500);
+      const timer = setTimeout(() => setIsReady(true), 2500);
       return () => clearTimeout(timer);
     }
   }, [user]);
