@@ -92,10 +92,10 @@ export default function RunsPage() {
 
   const screenshots = useMemo(() => {
     return [
-      { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'), description: "Shivani: Loading State (850ms)" },
-      { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform active verification" },
-      { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot visibility detection" },
-    ].filter(img => !!img?.imageUrl);
+      PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'),
+      PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'),
+      PlaceHolderImages.find(img => img.id === 'ad-screenshot'),
+    ].filter((img): img is NonNullable<typeof img> => !!img && !!img.imageUrl);
   }, []);
 
   return (
@@ -249,18 +249,16 @@ export default function RunsPage() {
                     <Camera className="h-3 w-3" /> Agent Shivani: Visual Verification Evidence
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {screenshots.map((img: any, i) => (
+                  {screenshots.map((img: any, i: number) => (
                     <div key={i} className="relative group overflow-hidden rounded-lg border bg-muted">
-                      {img.imageUrl && (
-                        <Image 
-                          src={img.imageUrl} 
-                          alt={img.description} 
-                          width={400} 
-                          height={225} 
-                          className="aspect-video object-cover transition-transform group-hover:scale-105"
-                          data-ai-hint={img.imageHint}
-                        />
-                      )}
+                      <Image 
+                        src={img.imageUrl} 
+                        alt={img.description} 
+                        width={400} 
+                        height={225} 
+                        className="aspect-video object-cover transition-transform group-hover:scale-105"
+                        data-ai-hint={img.imageHint}
+                      />
                       <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/60 text-[10px] text-white backdrop-blur-sm">
                         {img.description}
                       </div>
