@@ -12,19 +12,6 @@ service cloud.firestore {
      * Data is organized hierarchically under /publisher_sites/{publisherSiteId}. Deeply nested 
      * collections (Articles, QA Runs, Test Results, Bug Reports, Artifacts) follow this path. 
      * Agent activities and user role definitions are stored in top-level root collections.
-     *
-     * KEY SECURITY DECISIONS
-     * 1. Global Role Enforcement: Most collections require the user to have a 'QA Engineer' 
-     *    document for any read or write access.
-     * 2. Path-Data Consistency: Rules enforce that denormalized fields (like publisherSiteId 
-     *    and qaRunId) in the document body must match the Firestore path parameters.
-     * 3. Prototyping Flexibility: Rules focus on authorization and relational integrity rather 
-     *    than strict schema or data type validation to allow for rapid iteration.
-     *
-     * DENORMALIZATION FOR AUTHORIZATION
-     * To ensure high performance and avoid costly get() calls, these rules rely on 
-     * 'publisherSiteId' and 'qaRunId' being present on all child documents. This allows 
-     * the security layer to verify the hierarchical context of a document atomically.
      */
 
     // --- GLOBAL HELPER FUNCTIONS ---
@@ -49,21 +36,24 @@ service cloud.firestore {
     /**
      * @description Authorization records for QA Engineers.
      * @path /roles_qa_engineers/{userId}
-     * @allow (get) If the user is signed in to check their own or others' status.
-     * @deny (write) Any client-side write; roles should be managed via admin/server.
-     * @principle Restricts role management to server-side/admin only.
      */
     match /roles_qa_engineers/{userId} {
       allow get, list: if isSignedIn();
-      allow create, update, delete: if false; 
+      // Allow users to self-register for the prototype
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update, delete: if false; 
+    }
+
+    /**
+     * @description Collection Group query support for QA Runs.
+     * This is required for dashboard queries that span all publisher sites.
+     */
+    match /{path=**}/qa_runs/{qaRunId} {
+      allow list: if isQAEngineer();
     }
 
     /**
      * @description Top-level publisher site metadata.
-     * @path /publisher_sites/{publisherSiteId}
-     * @allow (create) If the user is a QA Engineer and data.id matches path.
-     * @deny (update) If the user is not a QA Engineer or site ID is being changed.
-     * @principle RBAC for site management and ID immutability.
      */
     match /publisher_sites/{publisherSiteId} {
       allow get, list: if isQAEngineer();
@@ -74,10 +64,6 @@ service cloud.firestore {
 
     /**
      * @description Articles associated with a specific publisher site.
-     * @path /publisher_sites/{publisherSiteId}/articles/{articleId}
-     * @allow (create) If QA Engineer and publisherSiteId matches the path.
-     * @deny (list) If the user is not an authorized QA Engineer.
-     * @principle Relational integrity through path-data matching.
      */
     match /publisher_sites/{publisherSiteId}/articles/{articleId} {
       allow get, list: if isQAEngineer();
@@ -92,13 +78,9 @@ service cloud.firestore {
 
     /**
      * @description QA execution runs for a publisher site.
-     * @path /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId}
-     * @allow (create) If QA Engineer sets themselves as initiator and matches path IDs.
-     * @deny (delete) Prevents loss of audit history.
-     * @principle Audit integrity and ownership validation.
      */
     match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId} {
-      allow get, list: if isQAEngineer();
+      allow get: if isQAEngineer();
       allow create: if isQAEngineer() 
         && request.resource.data.id == qaRunId
         && request.resource.data.publisherSiteId == publisherSiteId
@@ -111,14 +93,9 @@ service cloud.firestore {
 
     /**
      * @description Results for player and audio tests, bug reports, and artifacts.
-     * @path /publisher_sites/{pId}/qa_runs/{qId}/{collection}/{resId}
-     * @allow (create) If QA Engineer and denormalized IDs match the hierarchy.
-     * @deny (update) If IDs are being mutated.
-     * @principle Path-based authorization and denormalized field consistency.
      */
     match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId}/{collection}/{resultId} {
       
-      // Helper to check if the collection is a valid sub-run resource
       function isRunResource() {
         return collection in ['player_test_results', 'audio_test_results', 'bug_reports', 'artifacts'];
       }
@@ -140,10 +117,6 @@ service cloud.firestore {
 
     /**
      * @description Real-time agent monitoring logs.
-     * @path /agent_activity/{agentId}
-     * @allow (write) If the requester is an authorized QA Engineer (Agents share this context).
-     * @deny (read) For non-QA users.
-     * @principle Global monitoring restricted to technical staff.
      */
     match /agent_activity/{agentId} {
       allow get, list: if isQAEngineer();

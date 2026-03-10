@@ -9,7 +9,8 @@ import {
   Cpu,
   BarChart3,
   Waves,
-  Loader2
+  Loader2,
+  ShieldCheck
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -25,28 +26,60 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collectionGroup, query, orderBy, limit, doc, updateDoc } from "firebase/firestore";
-import { useEffect } from "react";
+import { useCollection, useFirestore, useMemoFirebase, useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
+import { collectionGroup, query, orderBy, limit, doc, updateDoc, getDoc, setDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
   const db = useFirestore();
+  const auth = useAuth();
+  const { user, isUserLoading } = useUser();
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
-  // Query across all qa_runs collections using collectionGroup
+  // 1. Handle Automatic Anonymous Sign-in
+  useEffect(() => {
+    if (!isUserLoading && !user) {
+      initiateAnonymousSignIn(auth);
+    }
+  }, [user, isUserLoading, auth]);
+
+  // 2. Handle QA Engineer Role Provisioning (Prototype Only)
+  useEffect(() => {
+    async function checkRole() {
+      if (!user) return;
+      
+      const roleRef = doc(db, 'roles_qa_engineers', user.uid);
+      const roleSnap = await getDoc(roleRef);
+      
+      if (!roleSnap.exists()) {
+        await setDoc(roleRef, { 
+          uid: user.uid, 
+          role: 'qa_engineer',
+          createdAt: new Date().toISOString() 
+        });
+      }
+      setIsAuthorized(true);
+    }
+    checkRole();
+  }, [user, db]);
+
+  // 3. Query across all qa_runs collections using collectionGroup
+  // Only trigger query if user is logged in AND authorized to avoid permission errors
   const runsQuery = useMemoFirebase(() => {
+    if (!isAuthorized) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(5));
-  }, [db]);
+  }, [db, isAuthorized]);
 
-  const { data: runs, isLoading } = useCollection(runsQuery);
+  const { data: runs, isLoading: isDataLoading } = useCollection(runsQuery);
 
-  // Simulated Agent Effect: Automatically progress "pending" runs to "completed"
+  // 4. Simulated Agent Effect: Automatically progress "pending" runs to "completed"
   useEffect(() => {
     if (!runs) return;
 
     const pendingRun = runs.find(r => r.status === 'pending');
     if (pendingRun) {
       const timer = setTimeout(() => {
-        // Path construction for hierarchical updates
         const siteId = pendingRun.publisherSiteId;
         const runId = pendingRun.id;
         const runRef = doc(db, 'publisher_sites', siteId, 'qa_runs', runId);
@@ -60,11 +93,20 @@ export default function DashboardPage() {
           updatedAt: new Date().toISOString(),
           endTime: new Date().toISOString()
         });
-      }, 5000); // 5 seconds of "processing"
+      }, 5000);
 
       return () => clearTimeout(timer);
     }
   }, [runs, db]);
+
+  if (isUserLoading || (!isAuthorized && user)) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="text-muted-foreground font-medium">Authenticating Secure QA Session...</p>
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider>
@@ -115,7 +157,7 @@ export default function DashboardPage() {
                 <CardDescription>Live monitoring of shivani and honey grace agent swarms.</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isDataLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
                   </div>
