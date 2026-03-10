@@ -12,7 +12,10 @@ import {
   BrainCircuit,
   Search,
   Eye,
-  FileText
+  FileText,
+  Activity,
+  Zap,
+  Server
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -41,7 +44,6 @@ import {
 } from "@/components/ui/dialog";
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
 
-// Mock article titles for variety
 const ARTICLE_TITLES = [
   "House passes major spending bill to avert shutdown",
   "Global markets rally on unexpected tech sector growth",
@@ -53,7 +55,6 @@ const ARTICLE_TITLES = [
   "SpaceX successfully launches next-gen satellite array",
 ];
 
-// Mock data for initial state
 const INITIAL_RUNS = [
   { id: 'run-1', site: 'the-hill', agent: 'Honey Grace', status: 'completed', wer: 0.02, health: 98, title: "House passes major spending bill" },
   { id: 'run-2', site: 'reuters', agent: 'Shivani', status: 'completed', wer: 0.05, health: 92, title: "Global markets rally on tech news" },
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const [agentLogs, setAgentLogs] = useState<string[]>(["[SYSTEM] Dashboard initialized. Swarm ready."]);
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalyzeAudioTextDiscrepanciesOutput | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [swarmStats, setSwarmStats] = useState({ cpu: 12, memory: 1.2, queue: 0 });
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -76,7 +78,6 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Simulate Background Agent Activity
   useEffect(() => {
     const interval = setInterval(() => {
       if (Math.random() > 0.7 && !isSimulating) {
@@ -84,11 +85,12 @@ export default function DashboardPage() {
         const sites = ['the-hill', 'reuters', 'fortune', 'verge', 'marketwatch'];
         const randomSite = sites[Math.floor(Math.random() * sites.length)];
         const randomTitle = ARTICLE_TITLES[Math.floor(Math.random() * ARTICLE_TITLES.length)];
+        const isFailure = Math.random() > 0.8;
         
         const pendingRun = { 
           id: newId, 
           site: randomSite, 
-          agent: 'Shivani', 
+          agent: isFailure ? 'Shivani' : 'Honey Grace', 
           status: 'pending', 
           wer: 0, 
           health: 0,
@@ -97,20 +99,34 @@ export default function DashboardPage() {
         
         setRuns(prev => [pendingRun, ...prev].slice(0, 6));
         setIsSimulating(true);
+        setSwarmStats(prev => ({ ...prev, queue: prev.queue + 1, cpu: 45 }));
         
         setAgentLogs(prev => [...prev, `[ORCHESTRATOR] Dispatching swarm to ${randomSite}...`, `[SYSTEM] Target: "${randomTitle}"`]);
         
         setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on article page...`]), 1000);
-        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]), 2500);
-        setTimeout(() => setAgentLogs(prev => [...prev, `[HONEY GRACE] Analysis complete. High fidelity detected.`]), 4000);
+        setTimeout(() => {
+            if (isFailure) {
+                setAgentLogs(prev => [...prev, `[SHIVANI] ERROR: Playback timeout detected (VAST 303)`]);
+                setSwarmStats(prev => ({ ...prev, cpu: 15 }));
+            } else {
+                setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]);
+            }
+        }, 2500);
 
         setTimeout(() => {
           setRuns(currentRuns => currentRuns.map(r => 
             r.id === newId 
-              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace' } 
+              ? { 
+                  ...r, 
+                  status: isFailure ? 'failed' : 'completed', 
+                  wer: isFailure ? 0 : 0.04, 
+                  health: isFailure ? 45 : 96, 
+                  agent: isFailure ? 'Shivani' : 'Honey Grace' 
+                } 
               : r
           ));
           setIsSimulating(false);
+          setSwarmStats(prev => ({ ...prev, queue: Math.max(0, prev.queue - 1), cpu: 12 }));
           setAgentLogs(prev => [...prev, `[SYSTEM] QA Run ${newId.slice(-4)} finalized for "${randomTitle.substring(0, 20)}..."`]);
         }, 5000);
       }
@@ -156,18 +172,23 @@ export default function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard title="Total Sites" value="42" icon={Globe} description="Active publishers" />
             <StatCard title="Success Rate" value="94.2%" icon={CheckCircle2} trend={{ value: 1.2, isUp: true }} description="Avg. Health" />
-            <StatCard title="Active Bugs" value="7" icon={AlertTriangle} trend={{ value: 3, isUp: false }} description="Requiring review" />
-            <StatCard title="Agent Swarm" value={isSimulating ? "Active" : "Standby"} icon={Cpu} className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""} description={isSimulating ? "Processing tasks..." : "Ready for tasking"} />
+            <StatCard title="Active Bugs" value={runs.filter(r => r.status === 'failed').length + 4} icon={AlertTriangle} trend={{ value: 3, isUp: false }} description="Requiring review" />
+            <StatCard title="Agent Swarm" value={isSimulating ? "Busy" : "Idle"} icon={Cpu} className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""} description={isSimulating ? "Processing task..." : "Waiting for queue"} />
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
             <Card className="lg:col-span-4 border-none shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-primary" />
-                  Live QA Activity
-                </CardTitle>
-                <CardDescription>Real-time results from Shivani and Honey Grace agents.</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-primary" />
+                    Live QA Activity
+                  </CardTitle>
+                  <CardDescription>Recent results from Shivani and Honey Grace agents.</CardDescription>
+                </div>
+                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
+                    {isSimulating ? "1 Run Active" : "Swarm Standby"}
+                </Badge>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -184,7 +205,7 @@ export default function DashboardPage() {
                         <TableCell className="space-y-1 py-4">
                           <div className="flex items-center gap-2">
                             <FileText className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{run.site.replace('-', ' ')}</span>
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{run.site.replace('-', ' ')}</span>
                           </div>
                           <div className="font-semibold text-sm line-clamp-1">{run.title}</div>
                         </TableCell>
@@ -192,6 +213,10 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-2">
                             {run.status === 'pending' ? (
                               <Badge variant="secondary" className="animate-pulse bg-primary/10 text-primary border-primary/20">Analyzing...</Badge>
+                            ) : run.status === 'failed' ? (
+                                <Badge variant="destructive" className="bg-rose-500/10 text-rose-600 border-rose-500/20 hover:bg-rose-500/20">
+                                    <AlertTriangle className="h-3 w-3 mr-1" /> Failed
+                                </Badge>
                             ) : (
                               <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
                                 <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
@@ -203,11 +228,12 @@ export default function DashboardPage() {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            disabled={run.status === 'pending' || isAnalyzing}
+                            className="h-8"
+                            disabled={run.status !== 'completed' || isAnalyzing}
                             onClick={() => handleDeepDive(run)}
                           >
                             {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
-                            Analysis
+                            Details
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -219,20 +245,19 @@ export default function DashboardPage() {
 
             <div className="lg:col-span-3 space-y-6">
               <Card className="border-none shadow-sm bg-sidebar text-sidebar-foreground">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-primary">
-                    <Terminal className="h-5 w-5" />
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-primary text-sm">
+                    <Terminal className="h-4 w-4" />
                     Agent Swarm Log
                   </CardTitle>
-                  <CardDescription className="text-sidebar-foreground/60">Live execution telemetry.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[280px] w-full rounded-md border border-sidebar-border bg-black/20 p-4">
+                  <ScrollArea className="h-[240px] w-full rounded-md border border-sidebar-border bg-black/20 p-4">
                     <div className="space-y-2 font-code text-[10px] md:text-xs">
                       {agentLogs.map((log, i) => (
                         <div key={i} className="flex gap-2">
                           <span className="text-emerald-500 shrink-0">➜</span>
-                          <span className={log.startsWith('[SYSTEM]') ? 'text-primary' : 'text-sidebar-foreground/80'}>
+                          <span className={log.startsWith('[SYSTEM]') ? 'text-primary' : log.includes('ERROR') ? 'text-rose-400' : 'text-sidebar-foreground/80'}>
                             {log}
                           </span>
                         </div>
@@ -242,21 +267,38 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-none shadow-sm bg-accent/10 border border-accent/20">
+              <Card className="border-none shadow-sm bg-accent/5 border border-accent/10">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <BrainCircuit className="h-4 w-4 text-accent" />
+                  <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-widest text-accent">
+                    <BrainCircuit className="h-3 w-3" />
                     System Status
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">Connectivity</span>
-                    <Badge variant="outline" className="text-emerald-500 border-emerald-500/20 bg-emerald-500/5">Nominal</Badge>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">GenAI Active</span>
-                    <span className="font-bold text-accent">Gemini 2.5 Flash</span>
+                   <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-muted-foreground font-medium uppercase">Active Workers</span>
+                            <span className="font-bold">{isSimulating ? "4/18" : "0/18"}</span>
+                        </div>
+                        <Progress value={isSimulating ? 22 : 0} className="h-1 bg-accent/10" />
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                        <div className="p-2 bg-background/50 rounded-md border border-border/50">
+                            <div className="text-[9px] uppercase text-muted-foreground font-bold flex items-center gap-1">
+                                <Server className="h-2 w-2" /> CPU
+                            </div>
+                            <div className="text-sm font-bold">{swarmStats.cpu}%</div>
+                        </div>
+                        <div className="p-2 bg-background/50 rounded-md border border-border/50">
+                            <div className="text-[9px] uppercase text-muted-foreground font-bold flex items-center gap-1">
+                                <Zap className="h-2 w-2" /> Memory
+                            </div>
+                            <div className="text-sm font-bold">{swarmStats.memory} GB</div>
+                        </div>
+                   </div>
+                   <div className="flex items-center justify-between text-xs pt-2 border-t border-border/50">
+                    <span className="text-muted-foreground">GenAI Engine</span>
+                    <Badge variant="secondary" className="text-[9px] h-4">Gemini 2.5 Flash</Badge>
                   </div>
                 </CardContent>
               </Card>
@@ -269,46 +311,56 @@ export default function DashboardPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <BrainCircuit className="h-5 w-5 text-accent" />
-                Honey Grace - GenAI Reasoning
+                Honey Grace - Analysis Result
               </DialogTitle>
               <DialogDescription>
-                Detailed comparison between transcribed audio and canonical article body.
+                Detailed comparison for: {runs.find(r => r.id === selectedAnalysis?.summary)?.title || "Current Article"}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 text-center p-4 bg-muted/30 rounded-lg">
                 <div className="space-y-1">
-                  <span className="text-xs font-bold text-muted-foreground uppercase">Word Error Rate</span>
-                  <div className="text-2xl font-bold">{selectedAnalysis?.wordErrorRateEstimate}</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Word Error Rate</span>
+                  <div className="text-3xl font-bold text-primary">{selectedAnalysis?.wordErrorRateEstimate}</div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-xs font-bold text-muted-foreground uppercase">Semantic Similarity</span>
-                  <div className="text-2xl font-bold">{Math.round((selectedAnalysis?.semanticSimilarityScore || 0) * 100)}%</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Semantic Similarity</span>
+                  <div className="text-3xl font-bold text-accent">{Math.round((selectedAnalysis?.semanticSimilarityScore || 0) * 100)}%</div>
                 </div>
               </div>
               
               <div className="space-y-2">
-                <h4 className="text-sm font-bold uppercase text-primary">AI Executive Summary</h4>
-                <p className="text-sm bg-muted p-3 rounded-md italic">"{selectedAnalysis?.summary}"</p>
+                <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
+                    <Activity className="h-3 w-3" /> AI Reasoning
+                </h4>
+                <p className="text-sm bg-muted p-4 rounded-md border border-border italic text-foreground/80 leading-relaxed">
+                    "{selectedAnalysis?.summary}"
+                </p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold uppercase text-rose-600">Missing Content</h4>
-                  <ul className="text-xs space-y-1">
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase text-rose-600 border-b pb-1">Missing in Audio</h4>
+                  <ul className="text-[11px] space-y-2">
                     {selectedAnalysis?.missingContent.map((c, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-rose-400">•</span> {c}</li>
+                      <li key={i} className="flex gap-2 leading-tight">
+                        <span className="text-rose-400 font-bold">•</span>
+                        <span>{c}</span>
+                      </li>
                     ))}
-                    {selectedAnalysis?.missingContent.length === 0 && <li className="text-muted-foreground italic">None detected</li>}
+                    {selectedAnalysis?.missingContent.length === 0 && <li className="text-muted-foreground italic">No gaps detected.</li>}
                   </ul>
                 </div>
-                <div className="space-y-2">
-                  <h4 className="text-sm font-bold uppercase text-amber-600">Pronunciation Issues</h4>
-                  <ul className="text-xs space-y-1">
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase text-amber-600 border-b pb-1">Phonetic Anomalies</h4>
+                  <ul className="text-[11px] space-y-2">
                     {selectedAnalysis?.pronunciationIssues.map((c, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-amber-400">•</span> {c}</li>
+                      <li key={i} className="flex gap-2 leading-tight">
+                        <span className="text-amber-400 font-bold">•</span>
+                        <span>{c}</span>
+                      </li>
                     ))}
-                    {selectedAnalysis?.pronunciationIssues.length === 0 && <li className="text-muted-foreground italic">None detected</li>}
+                    {selectedAnalysis?.pronunciationIssues.length === 0 && <li className="text-muted-foreground italic">Perfect pronunciation.</li>}
                   </ul>
                 </div>
               </div>
