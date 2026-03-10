@@ -59,7 +59,7 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Add a buffer after auth to ensure security rules are synchronized and recognized
+  // Buffer after auth to ensure security rules are synchronized
   useEffect(() => {
     if (user) {
       const timer = setTimeout(() => setIsReady(true), 1500);
@@ -67,8 +67,7 @@ export default function DashboardPage() {
     }
   }, [user]);
 
-  // Gated queries: Only initiate after the user is authenticated and the "ready" buffer has passed.
-  // This prevents the "Missing or insufficient permissions" error during initial handshake.
+  // Gated queries
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(15));
@@ -130,6 +129,7 @@ export default function DashboardPage() {
           id: runId,
           publisherSiteId: site.id,
           articleId: articleId,
+          articleTitle: `${title} (${site.name})`,
           initiatedByUserId: user.uid,
           status: i === 1 ? 'completed' : 'pending',
           browserType: 'chromium',
@@ -151,8 +151,8 @@ export default function DashboardPage() {
     setIsAnalyzing(true);
     try {
       const result = await analyzeAudioTextDiscrepancies({
-        transcribedAudioText: `Verification for ${run.publisherSiteId}. Player initialized in 0.8s. Ad sequence verified. Transcription matches article body text with 98% accuracy.`,
-        finetunedArticleText: `Verification for ${run.publisherSiteId}. Player initialized correctly. Ad sequence verified. Transcription matches article body text accurately.`
+        transcribedAudioText: `Verification for ${run.articleTitle || run.id}. Player initialized in 0.8s. Ad sequence verified. Transcription matches article body text with 98% accuracy.`,
+        finetunedArticleText: `Verification for ${run.articleTitle || run.id}. Player initialized correctly. Ad sequence verified. Transcription matches article body text accurately.`
       });
       setSelectedAnalysis(result);
     } catch (e) {
@@ -247,7 +247,7 @@ export default function DashboardPage() {
                                 {run.publisherSiteId}
                               </Badge>
                             </div>
-                            <div className="font-semibold text-sm truncate max-w-[320px]">Run: {run.id}</div>
+                            <div className="font-semibold text-sm truncate max-w-[320px]">{run.articleTitle || `Run: ${run.id.split('_').pop()}`}</div>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -301,10 +301,14 @@ export default function DashboardPage() {
                         <span className="text-primary font-bold">[SYSTEM] Swarm initialization complete.</span>
                       </div>
                       {firestoreRuns?.filter(r => r.status === 'pending').map((run, i) => (
-                        <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3">
+                        <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3 mb-2">
                           <div className="flex gap-2 text-accent">
                             <span className="shrink-0">➜</span>
                             <span>[ORCHESTRATOR] Dispatching agents to {run.publisherSiteId}...</span>
+                          </div>
+                          <div className="flex gap-2 text-muted-foreground italic">
+                            <span className="shrink-0">➜</span>
+                            <span className="truncate">Target: "{run.articleTitle || 'Article body'}"</span>
                           </div>
                           <div className="flex gap-2 opacity-80">
                             <span className="shrink-0">➜</span>
