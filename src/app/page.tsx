@@ -13,7 +13,8 @@ import {
   History,
   PlusCircle,
   Database,
-  ArrowRight
+  ArrowRight,
+  Globe
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -103,21 +104,25 @@ export default function DashboardPage() {
       }, { merge: true });
 
       // Create dummy articles and runs
-      for(let i=1; i<=2; i++) {
+      const titles = [
+          "House passes major spending bill to avert shutdown",
+          "Inflation data beats expectations for third month",
+          "New study reveals shift in consumer digital habits",
+          "Editorial: The future of publisher-side AI narration",
+          "SpaceX successfully launches next-gen satellite array",
+          "Global markets rally on tech sector growth",
+          "Sustainable energy policy: A 2024 outlook"
+      ];
+
+      for(let i=1; i<=3; i++) {
         const articleId = `art_${site.id}_${i}_${Date.now()}`;
         const articleRef = doc(db, 'publisher_sites', site.id, 'articles', articleId);
-        const titles = [
-            "House passes major spending bill to avert shutdown",
-            "Inflation data beats expectations for third month",
-            "New study reveals shift in consumer digital habits",
-            "Editorial: The future of publisher-side AI narration"
-        ];
         const title = titles[Math.floor(Math.random() * titles.length)];
 
         setDocumentNonBlocking(articleRef, {
           id: articleId,
           publisherSiteId: site.id,
-          title: `${title} (${site.name})`,
+          title: title,
           url: `${site.url}/news/article-${i}`,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -129,7 +134,7 @@ export default function DashboardPage() {
           id: runId,
           publisherSiteId: site.id,
           articleId: articleId,
-          articleTitle: `${title} (${site.name})`,
+          articleTitle: title,
           initiatedByUserId: user.uid,
           status: i === 1 ? 'completed' : 'pending',
           browserType: 'chromium',
@@ -201,7 +206,7 @@ export default function DashboardPage() {
               description="Articles currently being tested" 
               className={pendingRuns.length > 0 ? "ring-2 ring-primary/20 bg-primary/5" : ""}
             />
-            <StatCard title="Sync Coverage" value={latestArticles?.length || 0} icon={FileText} description="Articles fetched from sites" />
+            <StatCard title="Sync Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest articles synced" />
             <StatCard title="Player Faults" value={failedRuns.length} icon={AlertTriangle} description="Detected functional errors" className={failedRuns.length > 0 ? "bg-rose-50" : ""} />
             <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcription match rate" />
           </div>
@@ -327,21 +332,21 @@ export default function DashboardPage() {
               <Card className="border-none shadow-sm">
                 <CardHeader className="pb-2 border-b bg-muted/20">
                   <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
-                    <FileText className="h-3 w-3 text-accent" />
+                    <Globe className="h-3 w-3 text-accent" />
                     Latest Articles Synced
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-4">
-                  <div className="space-y-4">
+                <CardContent className="pt-4 px-2">
+                  <div className="space-y-3">
                     {isArticlesLoading ? (
                       <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
                     ) : latestArticles?.map((art: any) => (
-                      <div key={art.id} className="flex flex-col gap-1 pb-2 border-b last:border-0 border-border/50">
+                      <div key={art.id} className="flex flex-col gap-1 pb-2 border-b last:border-0 border-border/50 px-2">
                         <div className="flex justify-between items-center">
                             <span className="text-[10px] font-bold text-accent uppercase tracking-tighter">{art.publisherSiteId}</span>
-                            <span className="text-[9px] text-muted-foreground">Synced Just Now</span>
+                            <span className="text-[9px] text-muted-foreground">Synced</span>
                         </div>
-                        <span className="text-xs font-medium line-clamp-2 text-foreground/90">{art.title}</span>
+                        <span className="text-xs font-medium line-clamp-1 text-foreground/90">{art.title}</span>
                       </div>
                     ))}
                     {!isArticlesLoading && (!latestArticles || latestArticles.length === 0) && (

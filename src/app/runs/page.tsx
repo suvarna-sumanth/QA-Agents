@@ -11,7 +11,10 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
-  FileText
+  FileText,
+  Activity,
+  Volume2,
+  ShieldCheck
 } from "lucide-react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { useEffect, useState } from "react";
@@ -33,14 +36,15 @@ export default function RunsPage() {
   // Buffer after auth to ensure security rules are synchronized
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 1500);
+      const timer = setTimeout(() => setIsReady(true), 2000); // 2 second buffer for auth propagation
       return () => clearTimeout(timer);
     }
   }, [user]);
 
-  // CRITICAL: Gate the query until the user is authenticated AND ready to prevent permission errors
+  // CRITICAL: Gate the query until the user is authenticated AND ready
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
+    // Collection group query to aggregate runs across all publisher sites
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(50));
   }, [db, user, isReady]);
 
@@ -49,77 +53,96 @@ export default function RunsPage() {
   return (
     <SidebarProvider>
       <DashboardSidebar />
-      <SidebarInset>
+      <SidebarInset className="bg-background/50">
         <div className="p-6 space-y-6">
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
               <PlayCircle className="h-8 w-8 text-primary" />
               Full History & Coverage
             </h1>
-            <p className="text-muted-foreground">Comprehensive log of all automated player and audio quality tests.</p>
+            <p className="text-muted-foreground font-medium">
+              Comprehensive log of article testing and player functionality verification.
+            </p>
           </header>
 
           <div className="grid gap-4">
-            {(isRunsLoading || !isReady) && (
-              <div className="h-64 flex flex-col items-center justify-center gap-4">
+            {(!isReady || (isRunsLoading && !firestoreRuns)) && (
+              <div className="h-64 flex flex-col items-center justify-center gap-4 border border-dashed rounded-lg bg-card">
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground animate-pulse">Syncing coverage history...</p>
+                <p className="text-sm text-muted-foreground animate-pulse font-medium">Synchronizing Secure Coverage History...</p>
               </div>
             )}
 
-            {!isRunsLoading && isReady && firestoreRuns?.length === 0 && (
-              <div className="h-64 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground gap-2 bg-muted/10">
+            {isReady && !isRunsLoading && (!firestoreRuns || firestoreRuns.length === 0) && (
+              <div className="h-64 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground gap-3 bg-muted/10">
                 <AlertCircle className="h-12 w-12 opacity-20" />
-                <p className="font-medium text-foreground">No historical runs detected.</p>
-                <p className="text-xs">Trigger a new QA run or provision test data from the Overview dashboard.</p>
+                <div className="text-center">
+                  <p className="font-bold text-foreground">No historical runs detected.</p>
+                  <p className="text-xs max-w-[280px] mt-1">Please trigger a new QA run from "Publisher Sites" or provision test data from the dashboard.</p>
+                </div>
               </div>
             )}
 
             {isReady && firestoreRuns?.map((run: any) => (
-              <Card key={run.id} className="border-none shadow-sm hover:bg-muted/30 transition-all group">
+              <Card key={run.id} className="border-none shadow-sm hover:ring-1 ring-primary/20 transition-all group overflow-hidden">
+                <div className={`h-1 w-full ${run.status === 'completed' ? 'bg-emerald-500' : run.status === 'failed' ? 'bg-rose-500' : 'bg-primary animate-pulse'}`} />
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className={`p-3 rounded-full shrink-0 ${run.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : run.status === 'failed' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>
-                        {run.status === 'completed' ? <CheckCircle2 className="h-6 w-6" /> : run.status === 'failed' ? <AlertCircle className="h-6 w-6" /> : <Loader2 className="h-6 w-6 animate-spin" />}
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    <div className="flex items-start gap-4 flex-1 min-w-0">
+                      <div className={`p-3 rounded-full shrink-0 ${
+                        run.status === 'completed' ? 'bg-emerald-50 text-emerald-600' : 
+                        run.status === 'failed' ? 'bg-rose-50 text-rose-600' : 
+                        'bg-primary/5 text-primary'
+                      }`}>
+                        {run.status === 'completed' ? <CheckCircle2 className="h-6 w-6" /> : 
+                         run.status === 'failed' ? <AlertCircle className="h-6 w-6" /> : 
+                         <Loader2 className="h-6 w-6 animate-spin" />}
                       </div>
-                      <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-accent uppercase tracking-tighter">{run.publisherSiteId}</span>
-                          <Badge variant="outline" className="text-[10px] h-4 py-0 uppercase bg-muted/50">{run.browserType}</Badge>
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] font-bold text-accent border-accent/20 uppercase tracking-tighter">
+                            {run.publisherSiteId}
+                          </Badge>
+                          <Badge variant="secondary" className="text-[10px] h-4 py-0 uppercase bg-muted/80">
+                            {run.browserType}
+                          </Badge>
                         </div>
-                        <div className="font-semibold text-lg text-foreground truncate flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="font-bold text-lg text-foreground truncate flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-primary shrink-0" />
                           {run.articleTitle || `Run ID: ${run.id.split('_').pop()}`}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
                             {run.createdAt ? new Date(run.createdAt).toLocaleString() : 'N/A'}
                           </div>
-                          <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'} className="h-4 px-1 text-[9px] uppercase">
+                          <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'} className="h-4 px-1 text-[9px] uppercase font-bold">
                             {run.status}
                           </Badge>
                         </div>
                       </div>
                     </div>
 
-                    <div className="hidden lg:flex items-center gap-8 px-6 border-x">
-                      <div className="text-center w-24">
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-1">Player Health</p>
-                        <p className={`font-bold text-sm ${run.overallPlayerHealthStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {run.overallPlayerHealthStatus || 'pending'}
-                        </p>
+                    <div className="flex items-center gap-4 lg:gap-12 lg:px-12 lg:border-x border-border/50 py-4 lg:py-0">
+                      <div className="space-y-2 min-w-[100px]">
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
+                          <ShieldCheck className="h-3 w-3 text-primary" /> Player Health
+                        </div>
+                        <div className={`font-bold text-sm ${run.overallPlayerHealthStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {run.overallPlayerHealthStatus || 'Verifying...'}
+                        </div>
                       </div>
-                      <div className="text-center w-24">
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-1">Audio Fidelity</p>
-                        <p className={`font-bold text-sm ${run.overallAudioQualityStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {run.overallAudioQualityStatus || 'pending'}
-                        </p>
+                      <div className="space-y-2 min-w-[100px]">
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
+                          <Volume2 className="h-3 w-3 text-accent" /> Audio Fidelity
+                        </div>
+                        <div className={`font-bold text-sm ${run.overallAudioQualityStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {run.overallAudioQualityStatus || 'Verifying...'}
+                        </div>
                       </div>
                     </div>
 
-                    <button className="p-2 hover:bg-primary/10 hover:text-primary rounded-full transition-colors shrink-0">
+                    <button className="self-end lg:self-center p-2 hover:bg-primary/10 hover:text-primary rounded-full transition-colors shrink-0 bg-muted/30">
                       <ExternalLink className="h-5 w-5 text-muted-foreground group-hover:text-primary" />
                     </button>
                   </div>

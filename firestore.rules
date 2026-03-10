@@ -5,26 +5,10 @@ service cloud.firestore {
      * PROTOTYPE RULES
      * Allows all authenticated users full access to all documents.
      * This includes direct paths and collection group queries.
+     * Simplest possible rule to ensure no blocks for the prototype.
      */
     match /{document=**} {
       allow read, write: if request.auth != null;
-    }
-
-    /**
-     * Explicit Collection Group matches.
-     * These are often required for group queries (like list operations on 'qa_runs')
-     * to satisfy security checks when querying across the entire database hierarchy.
-     */
-    match /{path=**}/qa_runs/{runId} {
-      allow read: if request.auth != null;
-    }
-    
-    match /{path=**}/articles/{articleId} {
-      allow read: if request.auth != null;
-    }
-    
-    match /{path=**}/player_test_results/{resultId} {
-      allow read: if request.auth != null;
     }
   }
 }
