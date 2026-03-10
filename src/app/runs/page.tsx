@@ -14,7 +14,8 @@ import {
   FileText,
   Activity,
   Volume2,
-  ShieldCheck
+  ShieldCheck,
+  HeartPulse
 } from "lucide-react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { useEffect, useState } from "react";
@@ -33,18 +34,17 @@ export default function RunsPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Buffer after auth to ensure security rules are synchronized
+  // Buffer after auth to ensure security rules are synchronized across the prototype swarm
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 2000); // 2 second buffer for auth propagation
+      const timer = setTimeout(() => setIsReady(true), 2000); 
       return () => clearTimeout(timer);
     }
   }, [user]);
 
-  // CRITICAL: Gate the query until the user is authenticated AND ready
+  // Gated query - only fire when authenticated and readiness buffer has elapsed
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    // Collection group query to aggregate runs across all publisher sites
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(50));
   }, [db, user, isReady]);
 
@@ -61,7 +61,7 @@ export default function RunsPage() {
               Full History & Coverage
             </h1>
             <p className="text-muted-foreground font-medium">
-              Comprehensive log of article testing and player functionality verification.
+              Comprehensive log of article testing and player health verification.
             </p>
           </header>
 
@@ -69,7 +69,7 @@ export default function RunsPage() {
             {(!isReady || (isRunsLoading && !firestoreRuns)) && (
               <div className="h-64 flex flex-col items-center justify-center gap-4 border border-dashed rounded-lg bg-card">
                 <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground animate-pulse font-medium">Synchronizing Secure Coverage History...</p>
+                <p className="text-sm text-muted-foreground animate-pulse font-medium">Synchronizing Secure Swarm History...</p>
               </div>
             )}
 
@@ -78,7 +78,7 @@ export default function RunsPage() {
                 <AlertCircle className="h-12 w-12 opacity-20" />
                 <div className="text-center">
                   <p className="font-bold text-foreground">No historical runs detected.</p>
-                  <p className="text-xs max-w-[280px] mt-1">Please trigger a new QA run from "Publisher Sites" or provision test data from the dashboard.</p>
+                  <p className="text-xs max-w-[280px] mt-1">Please trigger a new swarm task or provision test data from the dashboard.</p>
                 </div>
               </div>
             )}
@@ -126,10 +126,10 @@ export default function RunsPage() {
                     <div className="flex items-center gap-4 lg:gap-12 lg:px-12 lg:border-x border-border/50 py-4 lg:py-0">
                       <div className="space-y-2 min-w-[100px]">
                         <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
-                          <ShieldCheck className="h-3 w-3 text-primary" /> Player Health
+                          <HeartPulse className="h-3 w-3 text-primary" /> Player Health
                         </div>
                         <div className={`font-bold text-sm ${run.overallPlayerHealthStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {run.overallPlayerHealthStatus || 'Verifying...'}
+                          {run.overallPlayerHealthStatus || 'Testing...'}
                         </div>
                       </div>
                       <div className="space-y-2 min-w-[100px]">
@@ -137,7 +137,7 @@ export default function RunsPage() {
                           <Volume2 className="h-3 w-3 text-accent" /> Audio Fidelity
                         </div>
                         <div className={`font-bold text-sm ${run.overallAudioQualityStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {run.overallAudioQualityStatus || 'Verifying...'}
+                          {run.overallAudioQualityStatus || 'Testing...'}
                         </div>
                       </div>
                     </div>

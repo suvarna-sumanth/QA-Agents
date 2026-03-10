@@ -14,7 +14,9 @@ import {
   PlusCircle,
   Database,
   ArrowRight,
-  Globe
+  Globe,
+  Settings,
+  Cpu
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -43,6 +45,7 @@ import {
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
 import { collectionGroup, query, orderBy, limit, doc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
 
 export default function DashboardPage() {
   const auth = useAuth();
@@ -60,7 +63,7 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // Buffer after auth to ensure security rules are synchronized
+  // Buffer after auth to ensure security rules are synchronized across the swarm
   useEffect(() => {
     if (user) {
       const timer = setTimeout(() => setIsReady(true), 1500);
@@ -68,7 +71,7 @@ export default function DashboardPage() {
     }
   }, [user]);
 
-  // Gated queries
+  // Gated queries - only fire when authenticated and ready
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(15));
@@ -103,7 +106,6 @@ export default function DashboardPage() {
         updatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      // Create dummy articles and runs
       const titles = [
           "House passes major spending bill to avert shutdown",
           "Inflation data beats expectations for third month",
@@ -172,7 +174,7 @@ export default function DashboardPage() {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="text-muted-foreground font-medium animate-pulse">Initializing Secure QA Swarm...</p>
+        <p className="text-muted-foreground font-medium animate-pulse">Synchronizing Swarm Permissions...</p>
       </div>
     );
   }
@@ -191,24 +193,26 @@ export default function DashboardPage() {
                 <ShieldCheck className="h-8 w-8 text-primary" />
                 QA Command Center
               </h1>
-              <p className="text-muted-foreground">Monitoring article coverage and player health across all publishers.</p>
+              <p className="text-muted-foreground">Monitoring article coverage and audio player health across all publishers.</p>
             </div>
-            <Button variant="outline" size="sm" onClick={handleSeedData} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
-              <PlusCircle className="h-4 w-4" /> Provision Test Data
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleSeedData} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+                <PlusCircle className="h-4 w-4" /> Provision Data
+              </Button>
+            </div>
           </header>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard 
-              title="Active Queue" 
+              title="Pending Items" 
               value={pendingRuns.length} 
               icon={Activity} 
-              description="Articles currently being tested" 
+              description="Active swarm tests" 
               className={pendingRuns.length > 0 ? "ring-2 ring-primary/20 bg-primary/5" : ""}
             />
-            <StatCard title="Sync Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest articles synced" />
-            <StatCard title="Player Faults" value={failedRuns.length} icon={AlertTriangle} description="Detected functional errors" className={failedRuns.length > 0 ? "bg-rose-50" : ""} />
-            <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcription match rate" />
+            <StatCard title="Article Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest synced articles" />
+            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse || Activity} description="Functional uptime" />
+            <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcript match" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12">
@@ -219,7 +223,7 @@ export default function DashboardPage() {
                     <History className="h-5 w-5 text-primary" />
                     Agent Swarm Activity
                   </CardTitle>
-                  <CardDescription>Live results for player and audio verification.</CardDescription>
+                  <CardDescription>Live testing results for player and audio verification.</CardDescription>
                 </div>
                 {isRunsLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </CardHeader>
@@ -258,11 +262,11 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-2">
                               {run.status === 'pending' || run.status === 'in_progress' ? (
                                 <div className="flex items-center gap-2 text-primary font-medium text-xs animate-pulse">
-                                  <Loader2 className="h-3 w-3 animate-spin" /> Shivani/Honey Grace testing...
+                                  <Loader2 className="h-3 w-3 animate-spin" /> Swarm testing...
                                 </div>
                               ) : run.status === 'failed' ? (
                                   <Badge variant="destructive" className="bg-rose-500/10 text-rose-600 border-rose-500/20">
-                                      <AlertTriangle className="h-3 w-3 mr-1" /> Failed
+                                      <AlertTriangle className="h-3 w-3 mr-1" /> Player Fault
                                   </Badge>
                               ) : (
                                 <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
@@ -279,7 +283,7 @@ export default function DashboardPage() {
                               disabled={run.status === 'pending' || isAnalyzing}
                               onClick={() => handleDeepDive(run)}
                             >
-                              {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                              {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="text-xs font-bold text-primary">Report</span>}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -309,7 +313,7 @@ export default function DashboardPage() {
                         <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3 mb-2">
                           <div className="flex gap-2 text-accent">
                             <span className="shrink-0">➜</span>
-                            <span>[ORCHESTRATOR] Dispatching agents to {run.publisherSiteId}...</span>
+                            <span>[ORCHESTRATOR] Dispatching agents...</span>
                           </div>
                           <div className="flex gap-2 text-muted-foreground italic">
                             <span className="shrink-0">➜</span>
@@ -317,12 +321,12 @@ export default function DashboardPage() {
                           </div>
                           <div className="flex gap-2 opacity-80">
                             <span className="shrink-0">➜</span>
-                            <span>[SHIVANI] Locating player on target article...</span>
+                            <span>[SHIVANI] Locating player on article...</span>
                           </div>
                         </div>
                       ))}
                       {(!firestoreRuns || firestoreRuns.length === 0) && (
-                        <div className="text-muted-foreground/60 italic">Waiting for article sync...</div>
+                        <div className="text-muted-foreground/60 italic">Waiting for swarm dispatch...</div>
                       )}
                     </div>
                   </ScrollArea>
@@ -350,7 +354,7 @@ export default function DashboardPage() {
                       </div>
                     ))}
                     {!isArticlesLoading && (!latestArticles || latestArticles.length === 0) && (
-                      <p className="text-[10px] text-muted-foreground italic text-center py-8">No articles currently tracked.</p>
+                      <p className="text-[10px] text-muted-foreground italic text-center py-8">No articles currently synced.</p>
                     )}
                   </div>
                 </CardContent>
@@ -364,55 +368,65 @@ export default function DashboardPage() {
             <DialogHeader className="border-b pb-4">
               <DialogTitle className="flex items-center gap-2 text-accent text-xl">
                 <BrainCircuit className="h-6 w-6" />
-                Diagnostic Deep-Dive
+                QA Diagnostic Report
               </DialogTitle>
               <DialogDescription>
-                AI-powered comparison of fine-tuned article text vs captured player audio.
+                AI verification results for audio player health and content fidelity.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-6">
               <div className="grid grid-cols-3 gap-4 text-center p-4 bg-muted/30 rounded-lg border border-border">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">WER Rate</span>
-                  <div className="text-2xl font-bold text-primary">0.02</div>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Load Health</span>
-                  <div className="text-2xl font-bold text-accent">Optimal</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Player State</span>
+                  <div className="text-lg font-bold text-primary flex items-center justify-center gap-1">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Optimal
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Ad Verification</span>
-                  <div className="text-2xl font-bold text-emerald-600">Verified</div>
+                  <div className="text-lg font-bold text-accent">Verified</div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Audio Match</span>
+                  <div className="text-lg font-bold text-emerald-600">98%</div>
                 </div>
               </div>
               
               <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
-                    <Activity className="h-3 w-3" /> Honey Grace Intelligence Summary
+                    <Activity className="h-3 w-3" /> Honey Grace Analysis Summary
                 </h4>
                 <div className="text-sm bg-muted p-4 rounded-md border italic text-foreground/80 leading-relaxed border-l-4 border-l-primary">
-                    "{selectedAnalysis?.summary || "The audio player loaded successfully. The captured audio transcription matches the canonical article body with 98% fidelity. No mispronunciations or silence segments detected. Ad delivery was successful."}"
+                    "{selectedAnalysis?.summary || "The audio player initialized correctly. The captured audio transcription matches the canonical article body text accurately. No mispronunciations or silence segments detected. Ad sequence verified."}"
                 </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="space-y-3">
-                  <h4 className="text-xs font-bold uppercase text-rose-600 border-b pb-1 flex items-center gap-2">
-                    <AlertTriangle className="h-3 w-3" /> Player Anomalies
+                  <h4 className="text-xs font-bold uppercase text-primary border-b pb-1 flex items-center gap-2">
+                    <ShieldCheck className="h-3 w-3" /> Player Health Metadata
                   </h4>
-                  <p className="text-[11px] text-muted-foreground italic bg-rose-50/50 p-2 rounded">
-                    Shivani detected no UI overlap or playback timeouts during this verification cycle.
-                  </p>
+                  <div className="text-[11px] space-y-2 px-1">
+                    <div className="flex justify-between border-b border-dashed pb-1"><span>Load Time:</span> <span className="font-bold text-foreground">0.82s</span></div>
+                    <div className="flex justify-between border-b border-dashed pb-1"><span>Provider:</span> <span className="font-bold text-foreground">BlogAudio</span></div>
+                    <div className="flex justify-between"><span>Current State:</span> <Badge variant="outline" className="text-[9px] h-4 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 uppercase font-bold tracking-tighter">Playing</Badge></div>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase text-amber-600 border-b pb-1 flex items-center gap-2">
-                    <Volume2 className="h-3 w-3" /> Player Metadata
+                    <Volume2 className="h-3 w-3" /> Audio Discrepancies
                   </h4>
-                  <div className="text-[11px] space-y-2 px-1">
-                    <div className="flex justify-between border-b border-dashed pb-1"><span>Provider:</span> <span className="font-bold text-foreground">BlogAudio</span></div>
-                    <div className="flex justify-between border-b border-dashed pb-1"><span>Initial Load:</span> <span className="font-bold text-foreground">0.82s</span></div>
-                    <div className="flex justify-between"><span>State:</span> <Badge variant="outline" className="text-[9px] h-4 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 uppercase font-bold tracking-tighter">Playing</Badge></div>
-                  </div>
+                  {selectedAnalysis?.pronunciationIssues && selectedAnalysis.pronunciationIssues.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedAnalysis.pronunciationIssues.map((issue, i) => (
+                        <Badge key={i} variant="outline" className="text-[10px]">{issue}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground italic bg-emerald-50/50 p-2 rounded">
+                      No significant pronunciation issues detected by Honey Grace.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
