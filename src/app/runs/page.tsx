@@ -1,4 +1,3 @@
-
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -19,7 +18,9 @@ import {
   Activity,
   ShieldCheck,
   Eye,
-  Camera
+  Camera,
+  RefreshCw,
+  Monitor
 } from "lucide-react";
 import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { useEffect, useState, useMemo } from "react";
@@ -75,9 +76,10 @@ export default function RunsPage() {
     setSelectedRun(run);
     setIsAnalyzing(true);
     try {
+      // Simulate specialized analysis for the Instaread player states
       const result = await analyzeAudioTextDiscrepancies({
-        transcribedAudioText: `Instaread QA Validation for article: ${run.articleTitle}. Shivani successfully detected '#instaread-player' container. Verified 'Listen to audio version' headline presence. 'Sponsored By' ad placeholder was identified correctly. Waveform state transition verified during playback on ${run.articleUrl}.`,
-        finetunedArticleText: `Instaread QA Validation for article: ${run.articleTitle}. The Instaread player should load and display a waveform. A sponsored ad segment is expected. Transcription must match the canonical body text.`
+        transcribedAudioText: `Instaread QA Validation for article: ${run.articleTitle}. Shivani confirmed 'Loading' state completion within 850ms. Verified '#instaread-player' container injection. 'Listen to audio version' call-to-action is present. Waveform state transition verified from idle to active. Replay state confirmed after playback session.`,
+        finetunedArticleText: `Instaread QA Validation for article: ${run.articleTitle}. The player must handle loading, playback, and replay states. Waveforms and ad slots are critical verification points.`
       });
       setSelectedAnalysis(result);
     } catch (e) {
@@ -89,8 +91,9 @@ export default function RunsPage() {
   };
 
   const screenshots = [
-    { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform verification" },
-    { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot detection" },
+    { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'), description: "Shivani: Loading State (850ms)" },
+    { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform active verification" },
+    { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot visibility detection" },
   ].filter(Boolean);
 
   return (
@@ -104,7 +107,7 @@ export default function RunsPage() {
               Full History & Coverage
             </h1>
             <p className="text-muted-foreground font-medium">
-              Comprehensive log of article testing and player health verification.
+              Comprehensive log of article testing and player state verification.
             </p>
           </header>
 
@@ -208,7 +211,7 @@ export default function RunsPage() {
             <DialogHeader className="border-b pb-4">
               <DialogTitle className="flex items-center gap-2 text-accent text-xl">
                 <BrainCircuit className="h-6 w-6" />
-                Full QA Diagnostic Report
+                Thorough QA Diagnostic Report
               </DialogTitle>
               <DialogDescription className="text-foreground/80 font-medium">
                 Target: {selectedRun?.articleTitle}
@@ -216,24 +219,26 @@ export default function RunsPage() {
             </DialogHeader>
 
             <div className="space-y-6 py-6">
-              <div className="grid grid-cols-4 gap-4 text-center p-4 bg-muted/30 rounded-lg border border-border">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center p-4 bg-muted/30 rounded-lg border border-border">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Instaread State</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Loading State</span>
                   <div className="text-base font-bold text-primary flex items-center justify-center gap-1">
-                    <CheckCircle2 className="h-3 w-3 text-emerald-500" /> Detected
+                    <CheckCircle2 className="h-3 w-3 text-emerald-500" /> 850ms
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Ad Verification</span>
-                  <div className="text-base font-bold text-accent">Slot OK</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Playback</span>
+                  <div className="text-base font-bold text-accent">Active</div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Audio Match</span>
-                  <div className="text-base font-bold text-emerald-600">98%</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Replay State</span>
+                  <div className="text-base font-bold text-emerald-600 flex items-center justify-center gap-1">
+                    <RefreshCw className="h-3 w-3" /> Verified
+                  </div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Waveform</span>
-                  <div className="text-base font-bold text-foreground">Active</div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">VAST Ads</span>
+                  <div className="text-base font-bold text-foreground">Slot OK</div>
                 </div>
               </div>
 
@@ -241,7 +246,7 @@ export default function RunsPage() {
                 <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
                     <Camera className="h-3 w-3" /> Agent Shivani: Visual Verification Evidence
                 </h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {screenshots.map((img: any, i) => (
                     <div key={i} className="relative group overflow-hidden rounded-lg border bg-muted">
                       <Image 
@@ -264,14 +269,14 @@ export default function RunsPage() {
                     <Activity className="h-3 w-3" /> Honey Grace Fidelity Analysis
                 </h4>
                 <div className="text-sm bg-muted p-4 rounded-md border italic text-foreground/80 leading-relaxed border-l-4 border-l-primary">
-                    "{selectedAnalysis?.summary || "The Instaread player was located successfully. The 'Listen to audio version' header was detected, and the waveform correctly transitioned to an active state upon playback. Sponsored ad placeholders were identified and VAST sequences verified."}"
+                    "{selectedAnalysis?.summary || "The Instaread player was located successfully. The 'Loading' state completed within 850ms. The 'Listen to audio version' header was detected, and the waveform correctly transitioned to an active state upon playback. Replay functionality was verified post-session."}"
                 </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-6 pt-4 border-t">
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase text-primary border-b pb-1 flex items-center gap-2">
-                    <PlayCircle className="h-3 w-3" /> Technical Audit Data
+                    <Monitor className="h-3 w-3" /> Technical Audit Data
                   </h4>
                   <div className="text-[11px] space-y-2 px-1">
                     <div className="flex justify-between border-b border-dashed pb-1"><span>Provider:</span> <span className="font-bold text-foreground">Instaread</span></div>
@@ -286,7 +291,7 @@ export default function RunsPage() {
                   </h4>
                   <div className="text-[10px] text-muted-foreground bg-emerald-50/30 p-3 rounded border border-emerald-100/50">
                     <p className="font-medium text-emerald-700 mb-1 italic">Comparison Log:</p>
-                    "High fidelity transcription confirmed. Instaread narrator clear. All technical shrimp scampi brand names correctly identified."
+                    "High fidelity transcription confirmed. Instaread narrator clear. Replay state correctly re-initialized the audio stream without latency."
                   </div>
                 </div>
               </div>

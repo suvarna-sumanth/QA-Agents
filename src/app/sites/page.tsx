@@ -1,4 +1,3 @@
-
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -65,11 +64,13 @@ export default function SitesPage() {
 
   const simulateAuditProgress = (siteId: string, runId: string) => {
     const tasks = [
-      "Searching for Instaread player container...",
+      "Verifying initial loading state and DOM injection...",
+      "Searching for #instaread-player container...",
       "Verifying headline: 'Listen to audio version'...",
       "Checking 'Sponsored By' ad slot visibility...",
-      "Triggering play and verifying waveform state...",
-      "Capturing frame for VAST ad event verification...",
+      "Triggering playback & verifying waveform transition...",
+      "Capturing frame for VAST/VMAP ad event verification...",
+      "Testing replay state and user interaction reset...",
       "Finalizing Instaread ecosystem health report..."
     ];
 
@@ -129,7 +130,7 @@ export default function SitesPage() {
           articleUrl: article.url,
           initiatedByUserId: user.uid,
           status: 'pending',
-          currentTask: 'Searching for Instaread player container...',
+          currentTask: 'Verifying initial loading state...',
           browserType: 'chromium',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -157,8 +158,8 @@ export default function SitesPage() {
         <div className="p-6 space-y-6">
           <header className="flex items-center justify-between">
             <div className="space-y-1">
-              <h1 className="text-3xl font-bold font-headline">Publisher Sites</h1>
-              <p className="text-muted-foreground">Add new domains and trigger user-initiated QA audits.</p>
+              <h1 className="text-3xl font-bold font-headline text-foreground">Publisher Sites</h1>
+              <p className="text-muted-foreground">Add new domains and trigger user-initiated QA audits for Instaread players.</p>
             </div>
             
             <Dialog open={isAdding} onOpenChange={setIsAdding}>
