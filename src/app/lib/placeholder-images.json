@@ -1,0 +1,35 @@
+
+{
+  "placeholderImages": [
+    {
+      "id": "site-preview-1",
+      "description": "The Hill Article Page with Audio Player",
+      "imageUrl": "https://picsum.photos/seed/hill1/800/600",
+      "imageHint": "news website"
+    },
+    {
+      "id": "player-screenshot-loading",
+      "description": "Audio player in loading state",
+      "imageUrl": "https://picsum.photos/seed/load/800/450",
+      "imageHint": "audio player"
+    },
+    {
+      "id": "player-screenshot-playing",
+      "description": "Audio player in playing state",
+      "imageUrl": "https://picsum.photos/seed/play/800/450",
+      "imageHint": "music player"
+    },
+    {
+      "id": "ad-screenshot",
+      "description": "Advertisement playing in audio player",
+      "imageUrl": "https://picsum.photos/seed/ad/800/450",
+      "imageHint": "video advertisement"
+    },
+    {
+      "id": "error-state",
+      "description": "Player in error state",
+      "imageUrl": "https://picsum.photos/seed/error/800/450",
+      "imageHint": "broken computer"
+    }
+  ]
+}
