@@ -4,31 +4,31 @@
     {
       "id": "site-preview-1",
       "description": "The Hill Article Page with Audio Player",
-      "imageUrl": "https://picsum.photos/seed/news_article/800/600",
+      "imageUrl": "https://picsum.photos/seed/hill1/800/600",
       "imageHint": "news website"
     },
     {
       "id": "player-screenshot-loading",
       "description": "Shivani: Loading State (850ms)",
-      "imageUrl": "https://picsum.photos/seed/loading_ui/800/450",
-      "imageHint": "loading progress"
+      "imageUrl": "https://picsum.photos/seed/load/800/450",
+      "imageHint": "audio player"
     },
     {
       "id": "player-screenshot-playing",
       "description": "Shivani: Waveform active verification",
-      "imageUrl": "https://picsum.photos/seed/waveform_active/800/450",
+      "imageUrl": "https://picsum.photos/seed/play/800/450",
       "imageHint": "audio waveform"
     },
     {
       "id": "ad-screenshot",
       "description": "Shivani: Ad slot visibility detection",
-      "imageUrl": "https://picsum.photos/seed/advertising/800/450",
+      "imageUrl": "https://picsum.photos/seed/ad/800/450",
       "imageHint": "banner ad"
     },
     {
       "id": "error-state",
       "description": "Player in error state",
-      "imageUrl": "https://picsum.photos/seed/system_error/800/450",
+      "imageUrl": "https://picsum.photos/seed/error/800/450",
       "imageHint": "code error"
     }
   ]
