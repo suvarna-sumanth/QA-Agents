@@ -1,3 +1,4 @@
+
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -76,7 +77,6 @@ export default function RunsPage() {
     setSelectedRun(run);
     setIsAnalyzing(true);
     try {
-      // Simulate specialized analysis for the Instaread player states
       const result = await analyzeAudioTextDiscrepancies({
         transcribedAudioText: `Instaread QA Validation for article: ${run.articleTitle}. Shivani confirmed 'Loading' state completion within 850ms. Verified '#instaread-player' container injection. 'Listen to audio version' call-to-action is present. Waveform state transition verified from idle to active. Replay state confirmed after playback session.`,
         finetunedArticleText: `Instaread QA Validation for article: ${run.articleTitle}. The player must handle loading, playback, and replay states. Waveforms and ad slots are critical verification points.`
@@ -90,11 +90,13 @@ export default function RunsPage() {
     }
   };
 
-  const screenshots = [
-    { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'), description: "Shivani: Loading State (850ms)" },
-    { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform active verification" },
-    { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot visibility detection" },
-  ].filter(Boolean);
+  const screenshots = useMemo(() => {
+    return [
+      { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'), description: "Shivani: Loading State (850ms)" },
+      { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform active verification" },
+      { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot visibility detection" },
+    ].filter(img => !!img.imageUrl);
+  }, []);
 
   return (
     <SidebarProvider>
@@ -249,13 +251,15 @@ export default function RunsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {screenshots.map((img: any, i) => (
                     <div key={i} className="relative group overflow-hidden rounded-lg border bg-muted">
-                      <Image 
-                        src={img.imageUrl} 
-                        alt={img.description} 
-                        width={400} 
-                        height={225} 
-                        className="aspect-video object-cover transition-transform group-hover:scale-105"
-                      />
+                      {img.imageUrl && (
+                        <Image 
+                          src={img.imageUrl} 
+                          alt={img.description} 
+                          width={400} 
+                          height={225} 
+                          className="aspect-video object-cover transition-transform group-hover:scale-105"
+                        />
+                      )}
                       <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/60 text-[10px] text-white backdrop-blur-sm">
                         {img.description}
                       </div>
