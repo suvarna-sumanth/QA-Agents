@@ -19,14 +19,15 @@ import { format } from "date-fns";
 
 export default function RunsPage() {
   const db = useFirestore();
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
 
   const runsQuery = useMemoFirebase(() => {
-    if (!user) return null;
+    // CRITICAL: Gate the query until the user is signed in
+    if (!user || !db) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(20));
   }, [db, user]);
 
-  const { data: runs, isLoading } = useCollection(runsQuery);
+  const { data: runs, isLoading, error } = useCollection(runsQuery);
 
   return (
     <SidebarProvider>
@@ -42,9 +43,13 @@ export default function RunsPage() {
           </header>
 
           <div className="grid gap-4">
-            {isLoading ? (
+            {isUserLoading || isLoading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : error ? (
+              <div className="p-4 rounded-lg bg-rose-50 border border-rose-100 text-rose-800 text-sm">
+                Unable to load run history. {error.message}
               </div>
             ) : runs && runs.length > 0 ? (
               runs.map((run) => (

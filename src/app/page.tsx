@@ -41,7 +41,7 @@ export default function DashboardPage() {
   const db = useFirestore();
   const auth = useAuth();
   const { user, isUserLoading } = useUser();
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   // 1. Handle Automatic Anonymous Sign-in
   useEffect(() => {
@@ -50,9 +50,9 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  // 2. Handle Prototype Authorization State
+  // 2. Provision Prototype Role and Signal Readiness
   useEffect(() => {
-    if (user) {
+    if (user && db) {
       // Provision the role document for the user
       const roleRef = doc(db, 'roles_qa_engineers', user.uid);
       setDocumentNonBlocking(roleRef, { 
@@ -61,18 +61,18 @@ export default function DashboardPage() {
         lastSeen: new Date().toISOString() 
       }, { merge: true });
 
-      // Signal that we are ready to fetch data
-      const timer = setTimeout(() => setIsAuthorized(true), 1000);
+      // Add a safety buffer to ensure rules are aware of the authenticated session
+      const timer = setTimeout(() => setIsReady(true), 1500);
       return () => clearTimeout(timer);
     }
   }, [user, db]);
 
   // 3. Query across all qa_runs using collectionGroup
   const runsQuery = useMemoFirebase(() => {
-    // Only attempt the query once authenticated and authorized
-    if (!user || !isAuthorized) return null;
+    // CRITICAL: Gate the query until the user is signed in and ready
+    if (!user || !isReady || !db) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(5));
-  }, [db, user, isAuthorized]);
+  }, [db, user, isReady]);
 
   const { data: runs, isLoading: isDataLoading, error: runsError } = useCollection(runsQuery);
 
@@ -102,7 +102,7 @@ export default function DashboardPage() {
     }
   }, [runs, db]);
 
-  if (isUserLoading || !user || !isAuthorized) {
+  if (isUserLoading || !user || !isReady) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -166,7 +166,7 @@ export default function DashboardPage() {
                   </div>
                 ) : runsError ? (
                   <div className="p-4 rounded-lg bg-rose-50 border border-rose-100 text-rose-800 text-sm">
-                    Unable to fetch recent runs. Please refresh the page or check your connection.
+                    Unable to fetch recent runs. {runsError.message}
                   </div>
                 ) : (
                   <Table>
