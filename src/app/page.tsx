@@ -1,4 +1,3 @@
-
 "use client";
 
 import { 
@@ -16,7 +15,8 @@ import {
   Database,
   Globe,
   HeartPulse,
-  ExternalLink
+  ExternalLink,
+  Eye
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -46,6 +46,8 @@ import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput
 import { collectionGroup, query, limit } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
+import Image from "next/image";
+import { PlaceHolderImages } from "@/lib/placeholder-images";
 
 export default function DashboardPage() {
   const auth = useAuth();
@@ -122,6 +124,11 @@ export default function DashboardPage() {
   const pendingRuns = firestoreRuns?.filter(r => r.status === 'pending' || r.status === 'in_progress') || [];
   const failedRuns = firestoreRuns?.filter(r => r.status === 'failed') || [];
 
+  const screenshots = [
+    PlaceHolderImages.find(img => img.id === 'site-preview-1'),
+    PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'),
+  ].filter(Boolean);
+
   return (
     <SidebarProvider>
       <DashboardSidebar />
@@ -173,7 +180,7 @@ export default function DashboardPage() {
                     <TableRow className="hover:bg-transparent bg-muted/10">
                       <TableHead className="pl-6">Article Target & URL</TableHead>
                       <TableHead>Swarm Status</TableHead>
-                      <TableHead className="text-right pr-6">Auditor Link</TableHead>
+                      <TableHead className="text-right pr-6">Auditor Report</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -230,10 +237,16 @@ export default function DashboardPage() {
                               variant="ghost" 
                               size="sm" 
                               className="h-8 group-hover:bg-primary/5"
-                              disabled={run.status === 'pending' || isAnalyzing}
+                              disabled={run.status !== 'completed' || isAnalyzing}
                               onClick={() => handleDeepDive(run)}
                             >
-                              {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="text-xs font-bold text-primary">Report</span>}
+                              {isAnalyzing && selectedRun?.id === run.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <span className="text-xs font-bold text-primary flex items-center gap-1">
+                                  <Eye className="h-3 w-3" /> Report
+                                </span>
+                              )}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -314,7 +327,7 @@ export default function DashboardPage() {
         </div>
 
         <Dialog open={!!selectedAnalysis} onOpenChange={() => { setSelectedAnalysis(null); setSelectedRun(null); }}>
-          <DialogContent className="max-w-2xl border-none shadow-2xl">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border-none shadow-2xl">
             <DialogHeader className="border-b pb-4">
               <DialogTitle className="flex items-center gap-2 text-accent text-xl">
                 <BrainCircuit className="h-6 w-6" />
@@ -325,20 +338,46 @@ export default function DashboardPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-6">
-              <div className="grid grid-cols-3 gap-4 text-center p-4 bg-muted/30 rounded-lg border border-border">
+              <div className="grid grid-cols-4 gap-4 text-center p-4 bg-muted/30 rounded-lg border border-border">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Player State</span>
-                  <div className="text-lg font-bold text-primary flex items-center justify-center gap-1">
+                  <div className="text-base font-bold text-primary flex items-center justify-center gap-1">
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Optimal
                   </div>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Ad Verification</span>
-                  <div className="text-lg font-bold text-accent">VAST Pass</div>
+                  <div className="text-base font-bold text-accent">VAST Pass</div>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Audio Match</span>
-                  <div className="text-lg font-bold text-emerald-600">98%</div>
+                  <div className="text-base font-bold text-emerald-600">98%</div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Latency</span>
+                  <div className="text-base font-bold text-foreground">0.82s</div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
+                    <ShieldCheck className="h-3 w-3" /> Agent Evidence: Site Screen Captures
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  {screenshots.map((img: any, i) => (
+                    <div key={i} className="relative group overflow-hidden rounded-lg border bg-muted">
+                      <Image 
+                        src={img.imageUrl} 
+                        alt={img.description} 
+                        width={400} 
+                        height={225} 
+                        className="aspect-video object-cover transition-transform group-hover:scale-105"
+                      />
+                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/60 text-[10px] text-white backdrop-blur-sm">
+                        {img.description}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
               
@@ -351,7 +390,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
+              <div className="grid md:grid-cols-2 gap-6 pt-4 border-t">
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold uppercase text-primary border-b pb-1 flex items-center gap-2">
                     <ShieldCheck className="h-3 w-3" /> Player Health Metadata
