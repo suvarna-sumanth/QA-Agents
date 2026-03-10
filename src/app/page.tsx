@@ -58,18 +58,16 @@ export default function DashboardPage() {
       
       const roleRef = doc(db, 'roles_qa_engineers', user.uid);
       try {
-        const roleSnap = await getDoc(roleRef);
-        if (!roleSnap.exists()) {
-          setDocumentNonBlocking(roleRef, { 
-            uid: user.uid, 
-            role: 'qa_engineer',
-            createdAt: new Date().toISOString() 
-          }, { merge: true });
-        }
-        // For the prototype, we consider the user authorized once they have a UID
-        setIsAuthorized(true);
+        // Just ensure the document exists to trigger the prototype authorization
+        setDocumentNonBlocking(roleRef, { 
+          uid: user.uid, 
+          role: 'qa_engineer',
+          updatedAt: new Date().toISOString() 
+        }, { merge: true });
+        
+        // Small delay to ensure Firestore has time to register the state
+        setTimeout(() => setIsAuthorized(true), 500);
       } catch (error) {
-        // Fallback authorization for prototype
         setIsAuthorized(true);
       }
     }
@@ -77,9 +75,15 @@ export default function DashboardPage() {
   }, [user, db]);
 
   // 3. Query across all qa_runs collections using collectionGroup
+  // We gate this query behind both authentication and the authorization check
   const runsQuery = useMemoFirebase(() => {
     if (!user || !isAuthorized) return null;
-    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(5));
+    try {
+      return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(5));
+    } catch (e) {
+      console.warn("Query construction failed, likely missing indexes", e);
+      return null;
+    }
   }, [db, user, isAuthorized]);
 
   const { data: runs, isLoading: isDataLoading } = useCollection(runsQuery);
@@ -110,11 +114,11 @@ export default function DashboardPage() {
     }
   }, [runs, db]);
 
-  if (isUserLoading || !user) {
+  if (isUserLoading || !user || !isAuthorized) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <p className="text-muted-foreground font-medium">Initializing Secure QA Session...</p>
+        <p className="text-muted-foreground font-medium">Establishing Secure Connection...</p>
       </div>
     );
   }
