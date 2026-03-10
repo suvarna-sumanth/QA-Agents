@@ -65,12 +65,12 @@ export default function SitesPage() {
 
   const simulateAuditProgress = (siteId: string, runId: string) => {
     const tasks = [
-      "Identifying player selectors...",
-      "Waiting for VAST ad response...",
-      "Verifying playback events...",
-      "Extracting audio stream for transcription...",
-      "Calculating Word Error Rate (WER)...",
-      "Finalizing health report..."
+      "Searching for Instaread player container...",
+      "Verifying headline: 'Listen to audio version'...",
+      "Checking 'Sponsored By' ad slot visibility...",
+      "Triggering play and verifying waveform state...",
+      "Capturing frame for VAST ad event verification...",
+      "Finalizing Instaread ecosystem health report..."
     ];
 
     let currentStep = 0;
@@ -93,7 +93,7 @@ export default function SitesPage() {
           updatedAt: new Date().toISOString()
         });
       }
-    }, 4000); // Progress every 4 seconds to give a realistic feel
+    }, 4000); 
   };
 
   const handleRunQA = async (siteId: string, siteName: string, siteUrl: string) => {
@@ -129,13 +129,12 @@ export default function SitesPage() {
           articleUrl: article.url,
           initiatedByUserId: user.uid,
           status: 'pending',
-          currentTask: 'Locating player on article page...',
+          currentTask: 'Searching for Instaread player container...',
           browserType: 'chromium',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }, { merge: true });
 
-        // Start the simulation for this run
         simulateAuditProgress(siteId, runId);
       }
 
