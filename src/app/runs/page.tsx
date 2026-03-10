@@ -1,3 +1,4 @@
+
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -21,11 +22,12 @@ export default function RunsPage() {
   const db = useFirestore();
   const { user, isUserLoading } = useUser();
 
-  // Fetch real historical runs
+  // CRITICAL: Gate the query until the user is authenticated to prevent permission errors
   const runsQuery = useMemoFirebase(() => {
-    if (!db) return null;
+    if (!db || !user) return null;
     return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(50));
-  }, [db]);
+  }, [db, user]);
+
   const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
 
   useEffect(() => {
@@ -42,9 +44,9 @@ export default function RunsPage() {
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
               <PlayCircle className="h-8 w-8 text-primary" />
-              QA Run History
+              Full History & Coverage
             </h1>
-            <p className="text-muted-foreground">Comprehensive log of all automated player and audio quality tests from Firestore.</p>
+            <p className="text-muted-foreground">Comprehensive log of all automated player and audio quality tests.</p>
           </header>
 
           <div className="grid gap-4">
@@ -58,6 +60,7 @@ export default function RunsPage() {
               <div className="h-64 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
                 <AlertCircle className="h-12 w-12 opacity-20" />
                 <p>No historical runs found in the database.</p>
+                <p className="text-xs">Trigger a run from the Publisher Sites page.</p>
               </div>
             )}
 
@@ -77,7 +80,7 @@ export default function RunsPage() {
                         <div className="flex items-center gap-3 text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {new Date(run.createdAt).toLocaleString()}
+                            {run.createdAt ? new Date(run.createdAt).toLocaleString() : 'N/A'}
                           </div>
                           <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'} className="h-5">
                             {run.status}
@@ -98,10 +101,6 @@ export default function RunsPage() {
                         <p className={`font-bold ${run.overallAudioQualityStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
                           {run.overallAudioQualityStatus || 'pending'}
                         </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Articles</p>
-                        <p className="font-bold">{run.totalArticlesTested || 1}</p>
                       </div>
                     </div>
 
