@@ -95,7 +95,7 @@ export default function RunsPage() {
       { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-loading'), description: "Shivani: Loading State (850ms)" },
       { ...PlaceHolderImages.find(img => img.id === 'player-screenshot-playing'), description: "Shivani: Waveform active verification" },
       { ...PlaceHolderImages.find(img => img.id === 'ad-screenshot'), description: "Shivani: Ad slot visibility detection" },
-    ].filter(img => !!img.imageUrl);
+    ].filter(img => !!img?.imageUrl);
   }, []);
 
   return (
@@ -258,6 +258,7 @@ export default function RunsPage() {
                           width={400} 
                           height={225} 
                           className="aspect-video object-cover transition-transform group-hover:scale-105"
+                          data-ai-hint={img.imageHint}
                         />
                       )}
                       <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/60 text-[10px] text-white backdrop-blur-sm">
