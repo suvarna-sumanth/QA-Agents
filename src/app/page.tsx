@@ -76,13 +76,12 @@ export default function DashboardPage() {
   // Gated queries to prevent permission errors during initialization
   const runsQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    // Simple query first to avoid complex index requirements initially
-    return query(collectionGroup(db, 'qa_runs'), limit(10));
+    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(15));
   }, [db, user, isReady]);
   
   const articlesQuery = useMemoFirebase(() => {
     if (!db || !user || !isReady) return null;
-    return query(collectionGroup(db, 'articles'), limit(5));
+    return query(collectionGroup(db, 'articles'), orderBy('createdAt', 'desc'), limit(10));
   }, [db, user, isReady]);
 
   const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
@@ -108,22 +107,48 @@ export default function DashboardPage() {
         updatedAt: new Date().toISOString(),
       }, { merge: true });
 
-      // Add a sample article for the site
-      const articleId = `art_${site.id}_${Date.now()}`;
-      const articleRef = doc(db, 'publisher_sites', site.id, 'articles', articleId);
-      setDocumentNonBlocking(articleRef, {
-        id: articleId,
-        publisherSiteId: site.id,
-        title: `Latest Analysis: Global Pulse at ${site.name}`,
-        url: `${site.url}/news/article-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
+      // Create articles and runs for each site
+      for(let i=1; i<=3; i++) {
+        const articleId = `art_${site.id}_${i}_${Date.now()}`;
+        const articleRef = doc(db, 'publisher_sites', site.id, 'articles', articleId);
+        const titles = [
+            "House passes major spending bill to avert shutdown",
+            "Inflation data beats expectations for third month",
+            "New study reveals shift in consumer digital habits",
+            "Editorial: The future of publisher-side AI narration"
+        ];
+        const title = titles[Math.floor(Math.random() * titles.length)];
+
+        setDocumentNonBlocking(articleRef, {
+          id: articleId,
+          publisherSiteId: site.id,
+          title: `${title} (${site.name})`,
+          url: `${site.url}/news/article-${i}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+
+        // Add a QA run for the article
+        const runId = `run_${articleId}`;
+        const runRef = doc(db, 'publisher_sites', site.id, 'qa_runs', runId);
+        setDocumentNonBlocking(runRef, {
+          id: runId,
+          publisherSiteId: site.id,
+          articleId: articleId,
+          initiatedByUserId: user.uid,
+          status: i === 1 ? 'completed' : 'pending',
+          browserType: 'chromium',
+          overallPlayerHealthStatus: 'pass',
+          overallAudioQualityStatus: 'pass',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
     });
 
     toast({
-      title: "Sample Data Provisioned",
-      description: "Sites and articles are now available for testing.",
+      title: "Swarm Environment Ready",
+      description: "Sites, articles, and active runs have been provisioned in Firestore.",
     });
   };
 
@@ -131,13 +156,13 @@ export default function DashboardPage() {
     setIsAnalyzing(true);
     try {
       const result = await analyzeAudioTextDiscrepancies({
-        transcribedAudioText: `Analysis for run ${run.id}. The player loaded correctly. Transcription fidelity: 98%.`,
-        finetunedArticleText: `Analysis for run ${run.id}. The player loaded correctly. Transcription fidelity: 99%.`
+        transcribedAudioText: `Analysis for ${run.publisherSiteId} run. The BlogAudio player loaded in 1.2s. Pre-roll ad detected and verified. Audio quality is high.`,
+        finetunedArticleText: `Analysis for ${run.publisherSiteId} run. The BlogAudio player loaded correctly. Pre-roll ad detected and verified. Audio quality is high.`
       });
       setSelectedAnalysis(result);
     } catch (e) {
       console.error(e);
-      toast({ variant: "destructive", title: "Analysis Failed", description: "Check GenAI service logs." });
+      toast({ variant: "destructive", title: "Analysis Failed", description: "GenAI service timeout. Please try again." });
     } finally {
       setIsAnalyzing(false);
     }
@@ -215,7 +240,7 @@ export default function DashboardPage() {
                         <TableCell colSpan={3} className="h-48 text-center text-muted-foreground">
                           <div className="flex flex-col items-center gap-2 opacity-50">
                             <Database className="h-8 w-8" />
-                            <p>No active runs found. Use "Provision Data" or trigger a run from Sites.</p>
+                            <p>No active runs found. Use "Provision Data" to seed the environment.</p>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -280,7 +305,7 @@ export default function DashboardPage() {
                         <span className="text-emerald-500 shrink-0">➜</span>
                         <span className="text-primary font-bold">[SYSTEM] Dashboard initialized. Swarm ready.</span>
                       </div>
-                      {firestoreRuns?.map((run, i) => (
+                      {firestoreRuns?.filter(r => r.status === 'pending').map((run, i) => (
                         <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3 mb-3">
                           <div className="flex gap-2 text-accent">
                             <span className="shrink-0">➜</span>
