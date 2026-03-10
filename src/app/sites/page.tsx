@@ -5,7 +5,7 @@ import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Play, ExternalLink, MoreVertical, Loader2 } from "lucide-react";
+import { Search, Plus, Play, ExternalLink, MoreVertical, Loader2, FileText, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -14,17 +14,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { useFirestore, useUser, setDocumentNonBlocking } from "@/firebase";
-import { doc } from "firebase/firestore";
+import { useFirestore, useUser, setDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase";
+import { doc, collection, query, orderBy } from "firebase/firestore";
 import { useState } from "react";
-
-const publishers = [
-  { id: "the-hill", name: "The Hill", domain: "thehill.com", status: "active", articlesTested: 1254, health: 98 },
-  { id: "reuters", name: "Reuters", domain: "reuters.com", status: "active", articlesTested: 842, health: 92 },
-  { id: "fortune", name: "Fortune", domain: "fortune.com", status: "active", articlesTested: 312, health: 95 },
-  { id: "verge", domain: "theverge.com", status: "active", articlesTested: 45, health: 88 },
-  { id: "marketwatch", name: "MarketWatch", domain: "marketwatch.com", status: "paused", articlesTested: 567, health: 96 },
-];
 
 export default function SitesPage() {
   const { toast } = useToast();
@@ -32,15 +24,15 @@ export default function SitesPage() {
   const { user } = useUser();
   const [running, setRunning] = useState<string | null>(null);
 
+  // Fetch real sites from Firestore
+  const sitesQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return query(collection(db, 'publisher_sites'), orderBy('name', 'asc'));
+  }, [db]);
+  const { data: firestoreSites, isLoading: isSitesLoading } = useCollection(sitesQuery);
+
   const handleRunQA = (siteId: string, siteName: string) => {
-    if (!user) {
-      toast({
-        variant: "destructive",
-        title: "Authentication Required",
-        description: "Please sign in to run QA automation.",
-      });
-      return;
-    }
+    if (!user || !db) return;
 
     setRunning(siteId);
     
@@ -63,14 +55,14 @@ export default function SitesPage() {
       audioTestsFailedCount: 0,
     };
 
-    // Use non-blocking helper per guidelines
     setDocumentNonBlocking(runRef, runData, { merge: true });
     
     toast({
-      title: "QA Run Triggered",
-      description: `Shivani and Honey Grace agents are now testing ${siteName}.`,
+      title: "QA Run Initiated",
+      description: `Monitoring ${siteName} for player and audio fidelity.`,
     });
 
+    // Reset UI state after a short delay
     setTimeout(() => setRunning(null), 1000);
   };
 
@@ -98,33 +90,43 @@ export default function SitesPage() {
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {publishers.map((site) => (
+            {isSitesLoading && (
+              <div className="col-span-full h-32 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            )}
+            
+            {!isSitesLoading && firestoreSites?.length === 0 && (
+              <div className="col-span-full h-32 text-center text-muted-foreground border rounded-lg flex flex-col items-center justify-center bg-muted/20">
+                <p>No publisher sites found.</p>
+                <p className="text-xs">Use "Seed Sample Data" on the dashboard to get started.</p>
+              </div>
+            )}
+
+            {firestoreSites?.map((site: any) => (
               <Card key={site.id} className="border-none shadow-sm hover:ring-1 ring-primary/20 transition-all group">
                 <CardHeader className="flex flex-row items-start justify-between pb-2">
                   <div className="space-y-1">
                     <CardTitle className="text-xl group-hover:text-primary transition-colors">{site.name || site.domain}</CardTitle>
                     <CardDescription className="flex items-center gap-1">
-                      {site.domain}
+                      {site.url || site.domain}
                       <ExternalLink className="h-3 w-3" />
                     </CardDescription>
                   </div>
-                  <Badge variant={site.status === "active" ? "default" : "secondary"}>
-                    {site.status}
+                  <Badge variant={site.isActive ? "default" : "secondary"}>
+                    {site.isActive ? "active" : "paused"}
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex justify-between text-sm py-2 border-y border-border/50">
-                    <div className="flex flex-col">
-                      <span className="text-muted-foreground font-medium">Articles Tested</span>
-                      <span className="font-bold">{site.articlesTested.toLocaleString()}</span>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <span className="text-muted-foreground font-medium">Player Health</span>
-                      <span className={site.health > 90 ? "font-bold text-emerald-600" : "font-bold text-amber-600"}>
-                        {site.health}%
-                      </span>
+                  <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      <div className="flex items-center gap-1">
+                        <FileText className="h-3 w-3" /> Articles
+                      </div>
+                      <span className="text-foreground">Managed in Firestore</span>
                     </div>
                   </div>
+                  
                   <div className="flex gap-2">
                     <Button 
                       className="flex-1 gap-2 bg-primary hover:bg-primary/90" 
@@ -141,9 +143,9 @@ export default function SitesPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>View Coverage</DropdownMenuItem>
+                        <DropdownMenuItem>View Latest Articles</DropdownMenuItem>
                         <DropdownMenuItem>Agent Settings</DropdownMenuItem>
-                        <DropdownMenuItem className="text-rose-600">Pause Testing</DropdownMenuItem>
+                        <DropdownMenuItem className="text-rose-600">Deactivate Site</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

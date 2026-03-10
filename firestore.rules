@@ -29,5 +29,9 @@ service cloud.firestore {
     match /{path=**}/bug_reports/{reportId} {
       allow read: if request.auth != null;
     }
+    
+    match /{path=**}/articles/{articleId} {
+      allow read: if request.auth != null;
+    }
   }
 }

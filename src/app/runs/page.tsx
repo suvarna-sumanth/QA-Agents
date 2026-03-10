@@ -8,57 +8,25 @@ import {
   PlayCircle, 
   CheckCircle2, 
   Calendar,
-  ExternalLink
+  ExternalLink,
+  Loader2,
+  AlertCircle
 } from "lucide-react";
-import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
+import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { useEffect } from "react";
-
-const MOCK_RUNS = [
-  {
-    id: "run-1",
-    site: "thehill.com",
-    status: "completed",
-    browser: "chromium",
-    date: "Mar 10, 2:15 PM",
-    playerHealth: "pass",
-    audioQuality: "pass",
-    passedCount: 8
-  },
-  {
-    id: "run-2",
-    site: "reuters.com",
-    status: "completed",
-    browser: "firefox",
-    date: "Mar 10, 1:45 PM",
-    playerHealth: "pass",
-    audioQuality: "fail",
-    passedCount: 5
-  },
-  {
-    id: "run-3",
-    site: "fortune.com",
-    status: "completed",
-    browser: "webkit",
-    date: "Mar 10, 11:20 AM",
-    playerHealth: "pass",
-    audioQuality: "pass",
-    passedCount: 8
-  },
-  {
-    id: "run-4",
-    site: "theverge.com",
-    status: "completed",
-    browser: "chromium",
-    date: "Mar 9, 11:55 PM",
-    playerHealth: "fail",
-    audioQuality: "pass",
-    passedCount: 4
-  }
-];
+import { collectionGroup, query, orderBy, limit } from "firebase/firestore";
 
 export default function RunsPage() {
   const auth = useAuth();
+  const db = useFirestore();
   const { user, isUserLoading } = useUser();
+
+  // Fetch real historical runs
+  const runsQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(50));
+  }, [db]);
+  const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -76,29 +44,42 @@ export default function RunsPage() {
               <PlayCircle className="h-8 w-8 text-primary" />
               QA Run History
             </h1>
-            <p className="text-muted-foreground">Comprehensive log of all automated player and audio quality tests.</p>
+            <p className="text-muted-foreground">Comprehensive log of all automated player and audio quality tests from Firestore.</p>
           </header>
 
           <div className="grid gap-4">
-            {MOCK_RUNS.map((run) => (
+            {isRunsLoading && (
+              <div className="h-64 flex items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              </div>
+            )}
+
+            {!isRunsLoading && firestoreRuns?.length === 0 && (
+              <div className="h-64 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <AlertCircle className="h-12 w-12 opacity-20" />
+                <p>No historical runs found in the database.</p>
+              </div>
+            )}
+
+            {firestoreRuns?.map((run: any) => (
               <Card key={run.id} className="border-none shadow-sm hover:bg-muted/30 transition-colors">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-full bg-emerald-100 text-emerald-600">
-                        <CheckCircle2 className="h-6 w-6" />
+                      <div className={`p-3 rounded-full ${run.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : run.status === 'failed' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>
+                        {run.status === 'completed' ? <CheckCircle2 className="h-6 w-6" /> : run.status === 'failed' ? <AlertCircle className="h-6 w-6" /> : <Loader2 className="h-6 w-6 animate-spin" />}
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-lg capitalize">{run.site}</span>
-                          <Badge variant="outline" className="text-[10px] uppercase">{run.browser}</Badge>
+                          <span className="font-bold text-lg capitalize">{run.publisherSiteId}</span>
+                          <Badge variant="outline" className="text-[10px] uppercase">{run.browserType}</Badge>
                         </div>
                         <div className="flex items-center gap-3 text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {run.date}
+                            {new Date(run.createdAt).toLocaleString()}
                           </div>
-                          <Badge variant="default" className="h-5">
+                          <Badge variant={run.status === 'completed' ? 'default' : run.status === 'failed' ? 'destructive' : 'secondary'} className="h-5">
                             {run.status}
                           </Badge>
                         </div>
@@ -107,20 +88,20 @@ export default function RunsPage() {
 
                     <div className="hidden md:flex items-center gap-8">
                       <div className="text-center">
-                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Player Health</p>
-                        <p className={`font-bold ${run.playerHealth === 'pass' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {run.playerHealth}
+                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Health Status</p>
+                        <p className={`font-bold ${run.overallPlayerHealthStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {run.overallPlayerHealthStatus || 'pending'}
                         </p>
                       </div>
                       <div className="text-center">
                         <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Audio Quality</p>
-                        <p className={`font-bold ${run.audioQuality === 'pass' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {run.audioQuality}
+                        <p className={`font-bold ${run.overallAudioQualityStatus === 'pass' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {run.overallAudioQualityStatus || 'pending'}
                         </p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Passed</p>
-                        <p className="font-bold">{run.passedCount}</p>
+                        <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Articles</p>
+                        <p className="font-bold">{run.totalArticlesTested || 1}</p>
                       </div>
                     </div>
 

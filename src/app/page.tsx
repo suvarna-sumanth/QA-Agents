@@ -1,4 +1,3 @@
-
 "use client";
 
 import { 
@@ -6,16 +5,15 @@ import {
   CheckCircle2, 
   AlertTriangle, 
   Cpu,
-  BarChart3,
   Loader2,
   Terminal,
   BrainCircuit,
-  Search,
-  Eye,
   FileText,
   Activity,
   Zap,
-  Server
+  Server,
+  Database,
+  PlusCircle
 } from "lucide-react";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
@@ -32,7 +30,7 @@ import {
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { useEffect, useState } from "react";
-import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
+import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase, setDocumentNonBlocking } from "@/firebase";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,34 +41,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
-
-const ARTICLE_TITLES = [
-  "House passes major spending bill to avert shutdown",
-  "Global markets rally on unexpected tech sector growth",
-  "New study reveals shift in consumer digital habits",
-  "Fortune 500: New leadership trends for 2024",
-  "The future of AI hardware: A comprehensive review",
-  "Bipartisan infrastructure agreement reaches final stages",
-  "Inflation data beats expectations for third month",
-  "SpaceX successfully launches next-gen satellite array",
-];
-
-const INITIAL_RUNS = [
-  { id: 'run-1', site: 'the-hill', agent: 'Honey Grace', status: 'completed', wer: 0.02, health: 98, title: "House passes major spending bill" },
-  { id: 'run-2', site: 'reuters', agent: 'Shivani', status: 'completed', wer: 0.05, health: 92, title: "Global markets rally on tech news" },
-  { id: 'run-3', site: 'fortune', agent: 'Honey Grace', status: 'completed', wer: 0.03, health: 95, title: "Fortune 500: New leaders emerge" },
-  { id: 'run-4', site: 'verge', agent: 'Shivani', status: 'completed', wer: 0.12, health: 85, title: "AI hardware review: The future is now" },
-];
+import { collectionGroup, query, orderBy, limit, doc } from "firebase/firestore";
+import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardPage() {
   const auth = useAuth();
+  const db = useFirestore();
+  const { toast } = useToast();
   const { user, isUserLoading } = useUser();
-  const [runs, setRuns] = useState(INITIAL_RUNS);
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [agentLogs, setAgentLogs] = useState<string[]>(["[SYSTEM] Dashboard initialized. Swarm ready."]);
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalyzeAudioTextDiscrepanciesOutput | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [swarmStats, setSwarmStats] = useState({ cpu: 12, memory: 1.2, queue: 0 });
+  const [agentLogs, setAgentLogs] = useState<string[]>(["[SYSTEM] Dashboard initialized. Swarm ready."]);
+
+  // Real-time Firestore query for recent runs across all sites
+  const runsQuery = useMemoFirebase(() => {
+    if (!db) return null;
+    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(10));
+  }, [db]);
+  const { data: firestoreRuns, isLoading: isRunsLoading } = useCollection(runsQuery);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -78,69 +66,51 @@ export default function DashboardPage() {
     }
   }, [user, isUserLoading, auth]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (Math.random() > 0.7 && !isSimulating) {
-        const newId = `run-${Date.now()}`;
-        const sites = ['the-hill', 'reuters', 'fortune', 'verge', 'marketwatch'];
-        const randomSite = sites[Math.floor(Math.random() * sites.length)];
-        const randomTitle = ARTICLE_TITLES[Math.floor(Math.random() * ARTICLE_TITLES.length)];
-        const isFailure = Math.random() > 0.8;
-        
-        const pendingRun = { 
-          id: newId, 
-          site: randomSite, 
-          agent: isFailure ? 'Shivani' : 'Honey Grace', 
-          status: 'pending', 
-          wer: 0, 
-          health: 0,
-          title: randomTitle
-        };
-        
-        setRuns(prev => [pendingRun, ...prev].slice(0, 6));
-        setIsSimulating(true);
-        setSwarmStats(prev => ({ ...prev, queue: prev.queue + 1, cpu: 45 }));
-        
-        setAgentLogs(prev => [...prev, `[ORCHESTRATOR] Dispatching swarm to ${randomSite}...`, `[SYSTEM] Target: "${randomTitle}"`]);
-        
-        setTimeout(() => setAgentLogs(prev => [...prev, `[SHIVANI] Locating player on article page...`]), 1000);
-        setTimeout(() => {
-            if (isFailure) {
-                setAgentLogs(prev => [...prev, `[SHIVANI] ERROR: Playback timeout detected (VAST 303)`]);
-                setSwarmStats(prev => ({ ...prev, cpu: 15 }));
-            } else {
-                setAgentLogs(prev => [...prev, `[HONEY GRACE] Audio stream detected. Starting transcription...`]);
-            }
-        }, 2500);
+  // Seeding helper to quickly populate the environment for QA engineers
+  const handleSeedData = () => {
+    if (!user || !db) return;
+    
+    const sites = [
+      { id: 'the-hill', name: 'The Hill', url: 'https://thehill.com' },
+      { id: 'reuters', name: 'Reuters', url: 'https://reuters.com' }
+    ];
 
-        setTimeout(() => {
-          setRuns(currentRuns => currentRuns.map(r => 
-            r.id === newId 
-              ? { 
-                  ...r, 
-                  status: isFailure ? 'failed' : 'completed', 
-                  wer: isFailure ? 0 : 0.04, 
-                  health: isFailure ? 45 : 96, 
-                  agent: isFailure ? 'Shivani' : 'Honey Grace' 
-                } 
-              : r
-          ));
-          setIsSimulating(false);
-          setSwarmStats(prev => ({ ...prev, queue: Math.max(0, prev.queue - 1), cpu: 12 }));
-          setAgentLogs(prev => [...prev, `[SYSTEM] QA Run ${newId.slice(-4)} finalized for "${randomTitle.substring(0, 20)}..."`]);
-        }, 5000);
-      }
-    }, 8000);
+    sites.forEach(site => {
+      const siteRef = doc(db, 'publisher_sites', site.id);
+      setDocumentNonBlocking(siteRef, {
+        ...site,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
 
-    return () => clearInterval(interval);
-  }, [isSimulating]);
+      // Add a dummy article
+      const articleId = `art_${site.id}_1`;
+      const articleRef = doc(db, 'publisher_sites', site.id, 'articles', articleId);
+      setDocumentNonBlocking(articleRef, {
+        id: articleId,
+        publisherSiteId: site.id,
+        title: `Latest news from ${site.name}`,
+        url: `${site.url}/news/latest`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    });
 
-  const handleDeepDive = async (run: typeof INITIAL_RUNS[0]) => {
+    toast({
+      title: "Environment Seeded",
+      description: "Sample publishers and articles have been added to Firestore.",
+    });
+    
+    setAgentLogs(prev => [...prev, "[SYSTEM] Environment seeded with sample articles."]);
+  };
+
+  const handleDeepDive = async (run: any) => {
     setIsAnalyzing(true);
     try {
       const result = await analyzeAudioTextDiscrepancies({
-        transcribedAudioText: `The article titled "${run.title}" was processed. The house representatives passed a significant spend bill on Tuesday...`,
-        finetunedArticleText: `The article titled "${run.title}" was processed. The House of Representatives has passed a significant spending bill on Tuesday, aiming to avert a government shutdown...`
+        transcribedAudioText: `The article titled "${run.id}" was processed. The house representatives passed a significant spend bill on Tuesday...`,
+        finetunedArticleText: `The article titled "${run.id}" was processed. The House of Representatives has passed a significant spending bill on Tuesday, aiming to avert a government shutdown...`
       });
       setSelectedAnalysis(result);
     } catch (e) {
@@ -159,21 +129,29 @@ export default function DashboardPage() {
     );
   }
 
+  const pendingCount = firestoreRuns?.filter(r => r.status === 'pending').length || 0;
+  const failedCount = firestoreRuns?.filter(r => r.status === 'failed').length || 0;
+
   return (
     <SidebarProvider>
       <DashboardSidebar />
       <SidebarInset className="bg-background/50">
         <div className="flex flex-col flex-1 p-6 gap-6">
-          <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold font-headline text-foreground">Overview</h1>
-            <p className="text-muted-foreground">Monitor real-time QA automation results across your publisher ecosystem.</p>
+          <header className="flex items-center justify-between">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold font-headline text-foreground">Overview</h1>
+              <p className="text-muted-foreground">Monitoring real-time Firestore activity across your publisher ecosystem.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleSeedData} className="gap-2">
+              <PlusCircle className="h-4 w-4" /> Seed Sample Data
+            </Button>
           </header>
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <StatCard title="Total Sites" value="42" icon={Globe} description="Active publishers" />
-            <StatCard title="Success Rate" value="94.2%" icon={CheckCircle2} trend={{ value: 1.2, isUp: true }} description="Avg. Health" />
-            <StatCard title="Active Bugs" value={runs.filter(r => r.status === 'failed').length + 4} icon={AlertTriangle} trend={{ value: 3, isUp: false }} description="Requiring review" />
-            <StatCard title="Agent Swarm" value={isSimulating ? "Busy" : "Idle"} icon={Cpu} className={isSimulating ? "ring-2 ring-primary animate-pulse" : ""} description={isSimulating ? "Processing task..." : "Waiting for queue"} />
+            <StatCard title="Total Sites" value="Live" icon={Globe} description="Querying Firestore" />
+            <StatCard title="Pending Tasks" value={pendingCount} icon={Database} description="Currently in queue" />
+            <StatCard title="Active Bugs" value={failedCount} icon={AlertTriangle} description="Requiring review" />
+            <StatCard title="Swarm Status" value={pendingCount > 0 ? "Busy" : "Idle"} icon={Cpu} className={pendingCount > 0 ? "ring-2 ring-primary animate-pulse" : ""} description={pendingCount > 0 ? "Agents active" : "Waiting for queue"} />
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
@@ -184,11 +162,9 @@ export default function DashboardPage() {
                     <Activity className="h-5 w-5 text-primary" />
                     Live QA Activity
                   </CardTitle>
-                  <CardDescription>Recent results from Shivani and Honey Grace agents.</CardDescription>
+                  <CardDescription>Latest runs fetched directly from Firestore.</CardDescription>
                 </div>
-                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                    {isSimulating ? "1 Run Active" : "Swarm Standby"}
-                </Badge>
+                {isRunsLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               </CardHeader>
               <CardContent>
                 <Table>
@@ -200,44 +176,54 @@ export default function DashboardPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {runs.map((run) => (
-                      <TableRow key={run.id}>
-                        <TableCell className="space-y-1 py-4">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{run.site.replace('-', ' ')}</span>
-                          </div>
-                          <div className="font-semibold text-sm line-clamp-1">{run.title}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {run.status === 'pending' ? (
-                              <Badge variant="secondary" className="animate-pulse bg-primary/10 text-primary border-primary/20">Analyzing...</Badge>
-                            ) : run.status === 'failed' ? (
-                                <Badge variant="destructive" className="bg-rose-500/10 text-rose-600 border-rose-500/20 hover:bg-rose-500/20">
-                                    <AlertTriangle className="h-3 w-3 mr-1" /> Failed
-                                </Badge>
-                            ) : (
-                              <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
-                                <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8"
-                            disabled={run.status !== 'completed' || isAnalyzing}
-                            onClick={() => handleDeepDive(run)}
-                          >
-                            {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
-                            Details
-                          </Button>
+                    {!firestoreRuns || firestoreRuns.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="h-32 text-center text-muted-foreground">
+                          No recent activity. Use "Seed Data" or "Run QA" on the Sites page.
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      firestoreRuns.map((run: any) => (
+                        <TableRow key={run.id}>
+                          <TableCell className="space-y-1 py-4">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                                {run.publisherSiteId || "Unknown Site"}
+                              </span>
+                            </div>
+                            <div className="font-semibold text-sm line-clamp-1">{run.id}</div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {run.status === 'pending' || run.status === 'in_progress' ? (
+                                <Badge variant="secondary" className="animate-pulse bg-primary/10 text-primary border-primary/20">Analyzing...</Badge>
+                              ) : run.status === 'failed' ? (
+                                  <Badge variant="destructive" className="bg-rose-500/10 text-rose-600 border-rose-500/20">
+                                      <AlertTriangle className="h-3 w-3 mr-1" /> Failed
+                                  </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/5 text-emerald-600">
+                                  <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-8"
+                              disabled={run.status === 'pending' || isAnalyzing}
+                              onClick={() => handleDeepDive(run)}
+                            >
+                              {isAnalyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Activity className="h-3 w-3 mr-1" />}
+                              Analysis
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -248,7 +234,7 @@ export default function DashboardPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-primary text-sm">
                     <Terminal className="h-4 w-4" />
-                    Agent Swarm Log
+                    System Logs
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -271,35 +257,31 @@ export default function DashboardPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-widest text-accent">
                     <BrainCircuit className="h-3 w-3" />
-                    System Status
+                    Database Sync
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                    <div className="space-y-1">
                         <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-muted-foreground font-medium uppercase">Active Workers</span>
-                            <span className="font-bold">{isSimulating ? "4/18" : "0/18"}</span>
+                            <span className="text-muted-foreground font-medium uppercase">Active Threads</span>
+                            <span className="font-bold">{pendingCount}</span>
                         </div>
-                        <Progress value={isSimulating ? 22 : 0} className="h-1 bg-accent/10" />
+                        <Progress value={pendingCount > 0 ? 100 : 0} className="h-1 bg-accent/10" />
                    </div>
                    <div className="grid grid-cols-2 gap-4">
                         <div className="p-2 bg-background/50 rounded-md border border-border/50">
                             <div className="text-[9px] uppercase text-muted-foreground font-bold flex items-center gap-1">
-                                <Server className="h-2 w-2" /> CPU
+                                <Server className="h-2 w-2" /> Host
                             </div>
-                            <div className="text-sm font-bold">{swarmStats.cpu}%</div>
+                            <div className="text-sm font-bold">Firestore</div>
                         </div>
                         <div className="p-2 bg-background/50 rounded-md border border-border/50">
                             <div className="text-[9px] uppercase text-muted-foreground font-bold flex items-center gap-1">
-                                <Zap className="h-2 w-2" /> Memory
+                                <Zap className="h-2 w-2" /> Auth
                             </div>
-                            <div className="text-sm font-bold">{swarmStats.memory} GB</div>
+                            <div className="text-sm font-bold truncate">{user.uid.slice(0, 8)}</div>
                         </div>
                    </div>
-                   <div className="flex items-center justify-between text-xs pt-2 border-t border-border/50">
-                    <span className="text-muted-foreground">GenAI Engine</span>
-                    <Badge variant="secondary" className="text-[9px] h-4">Gemini 2.5 Flash</Badge>
-                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -311,10 +293,10 @@ export default function DashboardPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <BrainCircuit className="h-5 w-5 text-accent" />
-                Honey Grace - Analysis Result
+                QA Analysis Result
               </DialogTitle>
               <DialogDescription>
-                Detailed comparison for: {runs.find(r => r.id === selectedAnalysis?.summary)?.title || "Current Article"}
+                Detailed comparison generated by GenAI flows.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-4">
@@ -331,7 +313,7 @@ export default function DashboardPage() {
               
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
-                    <Activity className="h-3 w-3" /> AI Reasoning
+                    <Activity className="h-3 w-3" /> Executive Summary
                 </h4>
                 <p className="text-sm bg-muted p-4 rounded-md border border-border italic text-foreground/80 leading-relaxed">
                     "{selectedAnalysis?.summary}"
