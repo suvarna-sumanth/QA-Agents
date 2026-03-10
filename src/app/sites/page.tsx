@@ -6,7 +6,7 @@ import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Play, ExternalLink, MoreVertical } from "lucide-react";
+import { Search, Plus, Play, ExternalLink, MoreVertical, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -15,23 +15,68 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { useFirestore, useUser } from "@/firebase";
+import { doc, setDoc, collection, serverTimestamp } from "firebase/firestore";
+import { useState } from "react";
 
 const publishers = [
-  { id: 1, name: "The Hill", domain: "thehill.com", status: "active", articlesTested: 1254, health: 98 },
-  { id: 2, name: "Reuters", domain: "reuters.com", status: "active", articlesTested: 842, health: 92 },
-  { id: 3, name: "Fortune", domain: "fortune.com", status: "active", articlesTested: 312, health: 95 },
-  { id: 4, name: "Verge", domain: "theverge.com", status: "active", articlesTested: 45, health: 88 },
-  { id: 5, name: "MarketWatch", domain: "marketwatch.com", status: "paused", articlesTested: 567, health: 96 },
+  { id: "the-hill", name: "The Hill", domain: "thehill.com", status: "active", articlesTested: 1254, health: 98 },
+  { id: "reuters", name: "Reuters", domain: "reuters.com", status: "active", articlesTested: 842, health: 92 },
+  { id: "fortune", name: "Fortune", domain: "fortune.com", status: "active", articlesTested: 312, health: 95 },
+  { id: "verge", domain: "theverge.com", status: "active", articlesTested: 45, health: 88 },
+  { id: "marketwatch", name: "MarketWatch", domain: "marketwatch.com", status: "paused", articlesTested: 567, health: 96 },
 ];
 
 export default function SitesPage() {
   const { toast } = useToast();
+  const db = useFirestore();
+  const { user } = useUser();
+  const [running, setRunning] = useState<string | null>(null);
 
-  const handleRunQA = (name: string) => {
-    toast({
-      title: "QA Run Triggered",
-      description: `Shivani and Honey Grace agents are now testing ${name}.`,
-    });
+  const handleRunQA = async (siteId: string, siteName: string) => {
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "Authentication Required",
+        description: "Please sign in to run QA automation.",
+      });
+      return;
+    }
+
+    setRunning(siteId);
+    
+    const runId = `run_${Date.now()}`;
+    const runRef = doc(db, 'publisher_sites', siteId, 'qa_runs', runId);
+
+    const runData = {
+      id: runId,
+      publisherSiteId: siteId,
+      initiatedByUserId: user.uid,
+      status: 'pending',
+      browserType: 'chromium',
+      startTime: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      totalArticlesTested: 1,
+      playerTestsPassedCount: 0,
+      playerTestsFailedCount: 0,
+      audioTestsPassedCount: 0,
+      audioTestsFailedCount: 0,
+    };
+
+    try {
+      // Non-blocking write per guidelines
+      setDoc(runRef, runData);
+      
+      toast({
+        title: "QA Run Triggered",
+        description: `Shivani and Honey Grace agents are now testing ${siteName}.`,
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTimeout(() => setRunning(null), 1000);
+    }
   };
 
   return (
@@ -62,7 +107,7 @@ export default function SitesPage() {
               <Card key={site.id} className="border-none shadow-sm hover:ring-1 ring-primary/20 transition-all group">
                 <CardHeader className="flex flex-row items-start justify-between pb-2">
                   <div className="space-y-1">
-                    <CardTitle className="text-xl group-hover:text-primary transition-colors">{site.name}</CardTitle>
+                    <CardTitle className="text-xl group-hover:text-primary transition-colors">{site.name || site.domain}</CardTitle>
                     <CardDescription className="flex items-center gap-1">
                       {site.domain}
                       <ExternalLink className="h-3 w-3" />
@@ -88,9 +133,11 @@ export default function SitesPage() {
                   <div className="flex gap-2">
                     <Button 
                       className="flex-1 gap-2 bg-primary hover:bg-primary/90" 
-                      onClick={() => handleRunQA(site.name)}
+                      onClick={() => handleRunQA(site.id, site.name || site.domain)}
+                      disabled={running === site.id}
                     >
-                      <Play className="h-4 w-4" /> Run Full QA
+                      {running === site.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                      Run Full QA
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
