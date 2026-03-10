@@ -1,73 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
     /**
-     * CORE PHILOSOPHY
-     * This ruleset implements a Role-Based Access Control (RBAC) model.
-     * For the prototype, we grant access to all authenticated users to avoid
-     * race conditions during initial role provisioning.
+     * PROTOTYPE RULES
+     * Allows all authenticated users full access to simplify the development loop.
      */
-
-    // --- GLOBAL HELPER FUNCTIONS ---
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    /** @description For the prototype, any signed-in user acts as a QA Engineer. */
-    function isQAEngineer() {
-      return isSignedIn();
-    }
-
-    // --- COLLECTION RULES ---
-
-    match /roles_qa_engineers/{userId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update, delete: if false; 
-    }
-
-    match /{path=**}/qa_runs/{qaRunId} {
-      allow list: if isQAEngineer();
-    }
-
-    match /publisher_sites/{publisherSiteId} {
-      allow get, list: if isQAEngineer();
-      allow create: if isQAEngineer() && request.resource.data.id == publisherSiteId;
-      allow update: if isQAEngineer() && request.resource.data.id == resource.data.id;
-      allow delete: if isQAEngineer();
-    }
-
-    match /publisher_sites/{publisherSiteId}/articles/{articleId} {
-      allow get, list: if isQAEngineer();
-      allow create: if isQAEngineer();
-      allow update: if isQAEngineer();
-      allow delete: if isQAEngineer();
-    }
-
-    match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId} {
-      allow get: if isQAEngineer();
-      allow create: if isQAEngineer();
-      allow update: if isQAEngineer();
-      allow delete: if false; 
-    }
-
-    match /publisher_sites/{publisherSiteId}/qa_runs/{qaRunId}/{collection}/{resultId} {
-      function isRunResource() {
-        return collection in ['player_test_results', 'audio_test_results', 'bug_reports', 'artifacts'];
-      }
-      allow get, list: if isQAEngineer() && isRunResource();
-      allow create: if isQAEngineer() && isRunResource();
-      allow update: if isQAEngineer() && isRunResource();
-      allow delete: if isQAEngineer() && isRunResource();
-    }
-
-    match /agent_activity/{agentId} {
-      allow get, list: if isQAEngineer();
-      allow create: if isQAEngineer() && request.resource.data.id == agentId;
-      allow update: if isQAEngineer() && request.resource.data.id == resource.data.id;
-      allow delete: if isQAEngineer();
+    match /{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }
