@@ -1,3 +1,4 @@
+
 "use client";
 
 import { 
@@ -31,7 +32,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { useEffect, useState, useMemo } from "react";
-import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase, setDocumentNonBlocking } from "@/firebase";
+import { useUser, useAuth, initiateAnonymousSignIn, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { analyzeAudioTextDiscrepancies, type AnalyzeAudioTextDiscrepanciesOutput } from "@/ai/flows/analyze-audio-text-discrepancies-flow";
-import { collectionGroup, query, limit, doc } from "firebase/firestore";
+import { collectionGroup, query, limit } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import Link from "next/link";
 
@@ -51,6 +52,7 @@ export default function DashboardPage() {
   const db = useFirestore();
   const { toast } = useToast();
   const { user, isUserLoading } = useUser();
+  const [selectedRun, setSelectedRun] = useState<any>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalyzeAudioTextDiscrepanciesOutput | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -63,7 +65,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (user) {
-      const timer = setTimeout(() => setIsReady(true), 3000);
+      const timer = setTimeout(() => setIsReady(true), 2000);
       return () => clearTimeout(timer);
     }
   }, [user]);
@@ -92,6 +94,7 @@ export default function DashboardPage() {
   }, [rawArticles]);
 
   const handleDeepDive = async (run: any) => {
+    setSelectedRun(run);
     setIsAnalyzing(true);
     try {
       const result = await analyzeAudioTextDiscrepancies({
@@ -147,9 +150,9 @@ export default function DashboardPage() {
               description="Articles currently in audit" 
               className={pendingRuns.length > 0 ? "ring-2 ring-primary/20 bg-primary/5" : ""}
             />
-            <StatCard title="Synced Articles" value={latestArticles?.length || 0} icon={FileText} description="Discovered by discovery agents" />
-            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse} description="Overall player functional success" />
-            <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcription match" />
+            <StatCard title="Article Coverage" value={latestArticles?.length || 0} icon={FileText} description="Latest synced articles" />
+            <StatCard title="Player Health" value={`${100 - failedRuns.length}%`} icon={HeartPulse} description="Functional uptime" />
+            <StatCard title="Audio Fidelity" value="98.2%" icon={Volume2} description="Global transcript match" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12">
@@ -254,26 +257,26 @@ export default function DashboardPage() {
                     <div className="space-y-3 font-code text-[11px] leading-relaxed">
                       <div className="flex gap-2">
                         <span className="text-emerald-500 shrink-0">➜</span>
-                        <span className="text-primary font-bold">[SYSTEM] Swarm initialization complete.</span>
+                        <span className="text-primary font-bold">[SYSTEM] Swarm hub online. Waiting for triggers.</span>
                       </div>
                       {firestoreRuns?.map((run: any, i: number) => (
                         <div key={i} className="flex flex-col gap-1 border-l-2 border-primary/20 pl-3 mb-2">
                           <div className="flex gap-2 text-accent">
                             <span className="shrink-0">➜</span>
-                            <span>[{run.status === 'completed' ? 'SYSTEM' : 'ORCHESTRATOR'}] {run.status === 'completed' ? `Audit complete for run ${run.id.split('_').pop()}` : 'Audit in progress...'}</span>
+                            <span>[{run.status === 'completed' ? 'SYSTEM' : 'ORCHESTRATOR'}] {run.status === 'completed' ? `Audit complete for ${run.articleTitle}` : 'Audit in progress...'}</span>
                           </div>
-                          <div className="flex gap-2 text-muted-foreground italic">
+                          <div className="flex gap-2 text-muted-foreground italic text-[10px]">
                             <span className="shrink-0">➜</span>
                             <span className="truncate">URL: {run.articleUrl}</span>
                           </div>
                           <div className="flex gap-2 opacity-80">
                             <span className="shrink-0">➜</span>
-                            <span>[SHIVANI] {run.currentTask || 'Auditing UI...'}</span>
+                            <span>[SHIVANI] {run.currentTask || 'Initializing UI audit...'}</span>
                           </div>
                         </div>
                       ))}
                       {(!firestoreRuns || firestoreRuns.length === 0) && (
-                        <div className="text-muted-foreground/60 italic">Waiting for user-initiated swarm dispatch...</div>
+                        <div className="text-muted-foreground/60 italic text-[10px] mt-4">Waiting for user-initiated swarm dispatch from "Publisher Sites" tab...</div>
                       )}
                     </div>
                   </ScrollArea>
@@ -284,7 +287,7 @@ export default function DashboardPage() {
                 <CardHeader className="pb-2 border-b bg-muted/20">
                   <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-widest text-muted-foreground">
                     <Globe className="h-3 w-3 text-accent" />
-                    Discovery Log
+                    Latest Articles Synced
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-4 px-2">
@@ -295,13 +298,13 @@ export default function DashboardPage() {
                       <div key={art.id} className="flex flex-col gap-1 pb-2 border-b last:border-0 border-border/50 px-2">
                         <div className="flex justify-between items-center">
                             <span className="text-[10px] font-bold text-accent uppercase tracking-tighter">{art.publisherSiteId}</span>
-                            <span className="text-[9px] text-muted-foreground">Discovered</span>
+                            <span className="text-[9px] text-muted-foreground">Synced</span>
                         </div>
                         <span className="text-xs font-medium line-clamp-1 text-foreground/90">{art.title}</span>
                       </div>
                     ))}
                     {!isArticlesLoading && (!latestArticles || latestArticles.length === 0) && (
-                      <p className="text-[10px] text-muted-foreground italic text-center py-8">No articles discovered yet.</p>
+                      <p className="text-[10px] text-muted-foreground italic text-center py-8">No articles synced yet. Run QA on a site to begin.</p>
                     )}
                   </div>
                 </CardContent>
@@ -310,15 +313,15 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <Dialog open={!!selectedAnalysis} onOpenChange={() => setSelectedAnalysis(null)}>
+        <Dialog open={!!selectedAnalysis} onOpenChange={() => { setSelectedAnalysis(null); setSelectedRun(null); }}>
           <DialogContent className="max-w-2xl border-none shadow-2xl">
             <DialogHeader className="border-b pb-4">
               <DialogTitle className="flex items-center gap-2 text-accent text-xl">
                 <BrainCircuit className="h-6 w-6" />
                 QA Diagnostic Report
               </DialogTitle>
-              <DialogDescription>
-                AI verification results for audio player health and content fidelity.
+              <DialogDescription className="text-foreground/80 font-medium">
+                Target: {selectedRun?.articleTitle}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6 py-6">
@@ -331,7 +334,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Ad Verification</span>
-                  <div className="text-lg font-bold text-accent">Verified</div>
+                  <div className="text-lg font-bold text-accent">VAST Pass</div>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">Audio Match</span>
@@ -341,7 +344,7 @@ export default function DashboardPage() {
               
               <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
-                    <Activity className="h-3 w-3" /> Honey Grace Analysis Summary
+                    <Activity className="h-3 w-3" /> Honey Grace Fidelity Analysis
                 </h4>
                 <div className="text-sm bg-muted p-4 rounded-md border italic text-foreground/80 leading-relaxed border-l-4 border-l-primary">
                     "{selectedAnalysis?.summary || "The audio player initialized correctly. The captured audio transcription matches the canonical article body text accurately. No mispronunciations or silence segments detected. Ad sequence verified."}"
@@ -355,8 +358,8 @@ export default function DashboardPage() {
                   </h4>
                   <div className="text-[11px] space-y-2 px-1">
                     <div className="flex justify-between border-b border-dashed pb-1"><span>Load Time:</span> <span className="font-bold text-foreground">0.82s</span></div>
-                    <div className="flex justify-between border-b border-dashed pb-1"><span>Provider:</span> <span className="font-bold text-foreground">Instaread/BlogAudio</span></div>
-                    <div className="flex justify-between"><span>Current State:</span> <Badge variant="outline" className="text-[9px] h-4 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 uppercase font-bold tracking-tighter">Playing</Badge></div>
+                    <div className="flex justify-between border-b border-dashed pb-1"><span>Status:</span> <span className="font-bold text-emerald-600">Active / Playing</span></div>
+                    <div className="flex justify-between"><span>Provider:</span> <Badge variant="outline" className="text-[9px] h-4 py-0 bg-primary/5 text-primary border-primary/10 uppercase font-bold">Instaread</Badge></div>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -371,7 +374,7 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <p className="text-[11px] text-muted-foreground italic bg-emerald-50/50 p-2 rounded">
-                      No significant pronunciation issues detected by Honey Grace.
+                      No significant pronunciation issues detected on this URL.
                     </p>
                   )}
                 </div>

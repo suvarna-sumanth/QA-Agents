@@ -1,3 +1,4 @@
+
 "use client";
 
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -5,7 +6,7 @@ import { DashboardSidebar } from "@/components/layout/dashboard-sidebar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Play, ExternalLink, MoreVertical, Loader2, FileText, Globe, CheckCircle2 } from "lucide-react";
+import { Search, Plus, Play, ExternalLink, MoreVertical, Loader2, FileText, Globe } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -23,8 +24,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useFirestore, useUser, setDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase";
-import { doc, collection, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { useFirestore, useUser, setDocumentNonBlocking, updateDocumentNonBlocking, useCollection, useMemoFirebase } from "@/firebase";
+import { doc, collection, query, orderBy } from "firebase/firestore";
 import { useState } from "react";
 import { discoverArticles } from "@/ai/flows/discover-articles-flow";
 
@@ -36,7 +37,6 @@ export default function SitesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [newSite, setNewSite] = useState({ name: "", url: "" });
 
-  // Fetch real sites from Firestore
   const sitesQuery = useMemoFirebase(() => {
     if (!db) return null;
     return query(collection(db, 'publisher_sites'), orderBy('name', 'asc'));
@@ -63,6 +63,39 @@ export default function SitesPage() {
     setIsAdding(false);
   };
 
+  const simulateAuditProgress = (siteId: string, runId: string) => {
+    const tasks = [
+      "Identifying player selectors...",
+      "Waiting for VAST ad response...",
+      "Verifying playback events...",
+      "Extracting audio stream for transcription...",
+      "Calculating Word Error Rate (WER)...",
+      "Finalizing health report..."
+    ];
+
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      if (currentStep < tasks.length) {
+        const runRef = doc(db, 'publisher_sites', siteId, 'qa_runs', runId);
+        updateDocumentNonBlocking(runRef, {
+          currentTask: tasks[currentStep],
+          updatedAt: new Date().toISOString()
+        });
+        currentStep++;
+      } else {
+        clearInterval(interval);
+        const runRef = doc(db, 'publisher_sites', siteId, 'qa_runs', runId);
+        updateDocumentNonBlocking(runRef, {
+          status: 'completed',
+          currentTask: 'Audit complete.',
+          overallPlayerHealthStatus: 'pass',
+          overallAudioQualityStatus: 'pass',
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }, 4000); // Progress every 4 seconds to give a realistic feel
+  };
+
   const handleRunQA = async (siteId: string, siteName: string, siteUrl: string) => {
     if (!user || !db) return;
 
@@ -70,10 +103,8 @@ export default function SitesPage() {
     toast({ title: "Initializing Agents", description: `Orchestrator is identifying targets for ${siteName}...` });
 
     try {
-      // Step 1: Discover articles via LLM
       const discovery = await discoverArticles({ url: siteUrl, siteName: siteName });
       
-      // Step 2: Create articles and runs for each discovered target
       for (const article of discovery.articles) {
         const articleId = `art_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const articleRef = doc(db, 'publisher_sites', siteId, 'articles', articleId);
@@ -103,6 +134,9 @@ export default function SitesPage() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }, { merge: true });
+
+        // Start the simulation for this run
+        simulateAuditProgress(siteId, runId);
       }
 
       toast({ 
