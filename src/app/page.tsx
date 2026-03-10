@@ -1,7 +1,6 @@
 "use client";
 
 import { 
-  Users, 
   Globe, 
   CheckCircle2, 
   AlertTriangle, 
@@ -24,85 +23,67 @@ import {
   TableRow 
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { 
-  useCollection, 
-  useFirestore, 
-  useMemoFirebase, 
-  useUser, 
-  useAuth, 
-  initiateAnonymousSignIn,
-  setDocumentNonBlocking,
-  updateDocumentNonBlocking
-} from "@/firebase";
-import { collectionGroup, query, orderBy, limit, doc } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { useUser, useAuth, initiateAnonymousSignIn } from "@/firebase";
+
+// Mock data for initial state
+const INITIAL_RUNS = [
+  { id: 'run-1', site: 'the-hill', agent: 'Honey Grace', status: 'completed', wer: 0.02, health: 98 },
+  { id: 'run-2', site: 'reuters', agent: 'Shivani', status: 'completed', wer: 0.05, health: 92 },
+  { id: 'run-3', site: 'fortune', agent: 'Honey Grace', status: 'completed', wer: 0.03, health: 95 },
+  { id: 'run-4', site: 'verge', agent: 'Shivani', status: 'completed', wer: 0.12, health: 85 },
+];
 
 export default function DashboardPage() {
-  const db = useFirestore();
   const auth = useAuth();
   const { user, isUserLoading } = useUser();
-  const [isReady, setIsReady] = useState(false);
+  const [runs, setRuns] = useState(INITIAL_RUNS);
+  const [isSimulating, setIsSimulating] = useState(false);
 
-  // 1. Handle Automatic Anonymous Sign-in
+  // 1. Handle Automatic Anonymous Sign-in for context
   useEffect(() => {
     if (!isUserLoading && !user) {
       initiateAnonymousSignIn(auth);
     }
   }, [user, isUserLoading, auth]);
 
-  // 2. Provision Prototype Role and Signal Readiness
+  // 2. Simulate Background Agent Activity
   useEffect(() => {
-    if (user && db) {
-      // Provision the role document for the user
-      const roleRef = doc(db, 'roles_qa_engineers', user.uid);
-      setDocumentNonBlocking(roleRef, { 
-        uid: user.uid, 
-        role: 'qa_engineer',
-        lastSeen: new Date().toISOString() 
-      }, { merge: true });
-
-      // Add a safety buffer to ensure rules are aware of the authenticated session
-      const timer = setTimeout(() => setIsReady(true), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [user, db]);
-
-  // 3. Query across all qa_runs using collectionGroup
-  const runsQuery = useMemoFirebase(() => {
-    // CRITICAL: Gate the query until the user is signed in and ready
-    if (!user || !isReady || !db) return null;
-    return query(collectionGroup(db, 'qa_runs'), orderBy('createdAt', 'desc'), limit(5));
-  }, [db, user, isReady]);
-
-  const { data: runs, isLoading: isDataLoading, error: runsError } = useCollection(runsQuery);
-
-  // 4. Simulated Agent Effect: Progress "pending" runs to "completed"
-  useEffect(() => {
-    if (!runs || !db) return;
-
-    const pendingRun = runs.find(r => r.status === 'pending');
-    if (pendingRun) {
-      const timer = setTimeout(() => {
-        const siteId = pendingRun.publisherSiteId;
-        const runId = pendingRun.id;
-        const runRef = doc(db, 'publisher_sites', siteId, 'qa_runs', runId);
+    const interval = setInterval(() => {
+      // Occasionally add a "pending" run to simulate live activity
+      if (Math.random() > 0.7 && !isSimulating) {
+        const newId = `run-${Date.now()}`;
+        const sites = ['the-hill', 'reuters', 'fortune', 'verge', 'marketwatch'];
+        const randomSite = sites[Math.floor(Math.random() * sites.length)];
         
-        updateDocumentNonBlocking(runRef, {
-          status: 'completed',
-          overallPlayerHealthStatus: 'pass',
-          overallAudioQualityStatus: 'pass',
-          playerTestsPassedCount: 5,
-          audioTestsPassedCount: 3,
-          updatedAt: new Date().toISOString(),
-          endTime: new Date().toISOString()
-        });
-      }, 5000);
+        const pendingRun = { 
+          id: newId, 
+          site: randomSite, 
+          agent: 'Shivani', 
+          status: 'pending', 
+          wer: 0, 
+          health: 0 
+        };
+        
+        setRuns(prev => [pendingRun, ...prev].slice(0, 6));
+        setIsSimulating(true);
 
-      return () => clearTimeout(timer);
-    }
-  }, [runs, db]);
+        // Complete the run after 5 seconds
+        setTimeout(() => {
+          setRuns(currentRuns => currentRuns.map(r => 
+            r.id === newId 
+              ? { ...r, status: 'completed', wer: 0.04, health: 96, agent: 'Honey Grace' } 
+              : r
+          ));
+          setIsSimulating(false);
+        }, 5000);
+      }
+    }, 8000);
 
-  if (isUserLoading || !user || !isReady) {
+    return () => clearInterval(interval);
+  }, [isSimulating]);
+
+  if (isUserLoading || !user) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -144,7 +125,7 @@ export default function DashboardPage() {
             />
             <StatCard 
               title="Agent Load" 
-              value={runs?.some(r => r.status === 'pending') ? "82%" : "68%"} 
+              value={isSimulating ? "82%" : "64%"} 
               icon={Cpu} 
               description="System utilization"
             />
@@ -160,73 +141,55 @@ export default function DashboardPage() {
                 <CardDescription>Real-time results from Shivani and Honey Grace agents.</CardDescription>
               </CardHeader>
               <CardContent>
-                {isDataLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary/50" />
-                  </div>
-                ) : runsError ? (
-                  <div className="p-4 rounded-lg bg-rose-50 border border-rose-100 text-rose-800 text-sm">
-                    Unable to fetch recent runs. {runsError.message}
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Site</TableHead>
-                        <TableHead>Agent</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Metrics</TableHead>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Site</TableHead>
+                      <TableHead>Agent</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Metrics</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {runs.map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell className="font-medium capitalize">
+                          {run.site.replace('-', ' ')}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={run.status === 'pending' ? "border-primary/20 bg-primary/5 text-primary" : "border-accent/20 bg-accent/5 text-accent"}>
+                            {run.agent}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {run.status === 'pending' ? (
+                              <>
+                                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                                <span className="text-sm">In Progress...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                <span className="text-sm font-medium text-emerald-600">Completed</span>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {run.status === 'pending' ? (
+                            <span className="text-xs text-muted-foreground italic">Analyzing...</span>
+                          ) : (
+                            <div className="flex flex-col items-end">
+                              <span className="text-xs font-bold">WER: {run.wer}</span>
+                              <Progress value={run.health} className="h-1 w-16" />
+                            </div>
+                          )}
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {runs && runs.length > 0 ? (
-                        runs.map((run) => (
-                          <TableRow key={run.id}>
-                            <TableCell className="font-medium capitalize">
-                              {run.publisherSiteId.replace('-', ' ')}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={run.status === 'pending' ? "border-primary/20 bg-primary/5 text-primary" : "border-accent/20 bg-accent/5 text-accent"}>
-                                {run.status === 'pending' ? "Shivani (Player)" : "Honey Grace (Audio)"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                {run.status === 'pending' ? (
-                                  <>
-                                    <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                                    <span className="text-sm">In Progress...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                                    <span className="text-sm font-medium text-emerald-600">Completed</span>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {run.status === 'pending' ? (
-                                <span className="text-xs text-muted-foreground italic">Analyzing...</span>
-                              ) : (
-                                <div className="flex flex-col items-end">
-                                  <span className="text-xs font-bold">WER: 0.04</span>
-                                  <Progress value={96} className="h-1 w-16" />
-                                </div>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                            No active runs. Head to Publisher Sites to trigger one.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                )}
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
 
@@ -269,7 +232,7 @@ export default function DashboardPage() {
                 <div className="p-4 rounded-lg bg-accent/5 border border-accent/10 space-y-2">
                   <h4 className="text-xs font-bold uppercase tracking-widest text-accent">Status Update</h4>
                   <p className="text-sm text-foreground/80">
-                    {runs?.some(r => r.status === 'pending') 
+                    {isSimulating 
                       ? "Swarm is currently processing playback telemetry for selected articles." 
                       : "Swarm standby. All agents ready for task assignment."}
                   </p>
