@@ -24,6 +24,7 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
     
     // Only handle Cloudflare, not other challenges
     if (!title.includes('Just a moment')) {
+      console.log(`[CF-Bypass] No challenge detected (title: "${title}")`);
       return true; // No challenge detected
     }
 
@@ -147,9 +148,33 @@ export async function hasCloudflareChallenge(page) {
     
     // Only detect Cloudflare, NOT PerimeterX
     if (title.includes('Just a moment')) {
-      // Double-check it's actually Cloudflare
-      const iframeExists = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first().isVisible({ timeout: 1000 }).catch(() => false);
-      return iframeExists;
+      console.log('[CF-Bypass] Detected "Just a moment" title, checking for Turnstile iframe...');
+      
+      // Try to find the iframe - it might take a moment to appear
+      // Use a longer timeout and check multiple times
+      try {
+        const iframe = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+        // Check if it exists at all
+        const count = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').count();
+        
+        if (count > 0) {
+          console.log('[CF-Bypass] ✓ Found Turnstile iframe');
+          return true;
+        }
+      } catch (err) {
+        // Fall back to checking if the iframe exists in DOM at all
+        const iframeExists = await page.evaluate(() => {
+          return !!document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]');
+        }).catch(() => false);
+        
+        if (iframeExists) {
+          console.log('[CF-Bypass] ✓ Found Turnstile iframe in DOM');
+          return true;
+        }
+      }
+      
+      console.log('[CF-Bypass] ⚠️ "Just a moment" detected but no Turnstile iframe found');
+      return true; // Still return true since we have the challenge title
     }
     
     return false;
