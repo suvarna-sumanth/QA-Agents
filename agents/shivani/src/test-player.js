@@ -650,7 +650,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Time Display Test',
           status: hasTimeDisplays ? 'pass' : 'fail',
           message: `Time displays: current=${timeDisplayResult.hasCurrentTime} (text="${timeDisplayResult.currentTimeText}"), total=${timeDisplayResult.hasTotalTime} (text="${timeDisplayResult.totalTimeText}")`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'time_display', stepCounter++),
           duration: Date.now() - step9Start,
         });
       } catch (err) {
@@ -658,7 +658,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Time Display Test',
           status: 'fail',
           message: `Error testing time displays: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'time_display_error', stepCounter++),
           duration: Date.now() - step9Start,
         });
       }
@@ -676,6 +676,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
     const step10Start = Date.now();
     if (frame) {
       try {
+        // Capture player during pause test
         const pauseTestResult = await frame.evaluate(() => {
           const audio = document.querySelector('audio#audioElement');
           const playBtn = document.querySelector('#playCircleBlockButton');
@@ -687,6 +688,40 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           audio.play();
           return { success: true };
         });
+
+        if (pauseTestResult.success) {
+          await frame.waitForTimeout(2000);
+          
+          // Pause the audio
+          await frame.evaluate(() => {
+            const audio = document.querySelector('audio#audioElement');
+            if (audio) audio.pause();
+          });
+          
+          await frame.waitForTimeout(1000);
+          const pauseScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'pause_state', stepCounter++);
+
+          const isPaused = await frame.evaluate(() => {
+            const audio = document.querySelector('audio#audioElement');
+            return audio?.paused ?? false;
+          });
+
+          steps.push({
+            name: 'Pause Functionality',
+            status: isPaused ? 'pass' : 'fail',
+            message: isPaused ? 'Audio paused successfully' : 'Audio pause may have failed',
+            screenshot: pauseScreenshot,
+            duration: Date.now() - step10Start,
+          });
+        } else {
+          steps.push({
+            name: 'Pause Functionality',
+            status: 'fail',
+            message: pauseTestResult.reason,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'pause_error', stepCounter++),
+            duration: Date.now() - step10Start,
+          });
+        }
 
         if (pauseTestResult.success) {
           await frame.waitForTimeout(1000);
@@ -767,7 +802,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Replay State Test',
             status: seekSuccessful ? 'pass' : 'fail',
             message: `Seeked to end (${replayPrepResult.seekedTo?.toFixed(2)}s). currentTime=${replayState.currentTime?.toFixed(2)}s, ended=${replayState.ended} (player-specific), paused=${replayState.paused}`,
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'replay_state_final', stepCounter++),
             duration: Date.now() - step11Start,
           });
         } else {
@@ -784,7 +819,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Replay State Test',
           status: 'fail',
           message: `Error testing replay state: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'replay_state_exception', stepCounter++),
           duration: Date.now() - step11Start,
         });
       }
@@ -896,7 +931,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Ad Detection (Main Page)',
           status: 'pass',
           message: `Found ${adInfo.mainPageAdCount} ad element(s). Networks detected: ${networksList || 'script-based'}`,
-          screenshot: null,
+          screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'ads_detected_main_page', stepCounter++),
           duration: Date.now() - step12Start,
           adDetails: adInfo.adDetails.slice(0, 5),
         });
@@ -905,7 +940,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Ad Detection (Main Page)',
           status: 'skip',
           message: 'No ad elements detected on main page',
-          screenshot: null,
+          screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'no_ads_main_page', stepCounter++),
           duration: Date.now() - step12Start,
         });
       }
@@ -914,7 +949,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Ad Detection (Main Page)',
         status: 'fail',
         message: `Error detecting ads on main page: ${err.message}`,
-        screenshot: null,
+        screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'ad_detection_error', stepCounter++),
         duration: Date.now() - step12Start,
       });
     }
@@ -970,7 +1005,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'AdPushup Rendering Status',
           status: renderedCount > 0 ? 'pass' : 'fail',
           message: `AdPushup detected: ${renderedCount}/${totalAdContainers} ad(s) rendered. Has queue: ${adpushupInfo.adpushupState?.hasQue}, Queue length: ${adpushupInfo.adpushupState?.queLength}`,
-          screenshot: null,
+          screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'adpushup_rendering', stepCounter++),
           duration: Date.now() - step13Start,
           adpushupDetails: {
             hasAdPushup: adpushupInfo.hasAdPushup,
@@ -993,7 +1028,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'AdPushup Rendering Status',
         status: 'fail',
         message: `Error checking AdPushup status: ${err.message}`,
-        screenshot: null,
+        screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'adpushup_error', stepCounter++),
         duration: Date.now() - step13Start,
       });
     }
@@ -1058,7 +1093,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Ad Detection (Iframe)',
             status: 'pass',
             message: `Found ${iframeAdInfo.adCount} ad element(s) inside player iframe. Networks: ${iframeAdInfo.adNetworks.join(', ') || 'unknown'}`,
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'ads_in_iframe', stepCounter++),
             duration: Date.now() - step14Start,
             adDetails: iframeAdInfo.adDetails.slice(0, 3),
           });
@@ -1067,7 +1102,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Ad Detection (Iframe)',
             status: 'skip',
             message: 'No ad elements detected inside player iframe',
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'no_ads_iframe', stepCounter++),
             duration: Date.now() - step14Start,
           });
         }
@@ -1076,7 +1111,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Ad Detection (Iframe)',
           status: 'fail',
           message: `Error detecting ads in iframe: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'iframe_ad_error', stepCounter++),
           duration: Date.now() - step14Start,
         });
       }
@@ -1151,7 +1186,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Overlay Ad Detection',
           status: 'pass',
           message: `Found ${overlayAdInfo.overlayCount} overlay/popup element(s) (typical US region ads)`,
-          screenshot: null,
+          screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'overlay_ads_detected', stepCounter++),
           duration: Date.now() - step15Start,
           overlayDetails: overlayAdInfo.overlayDetails.slice(0, 3),
         });
@@ -1160,7 +1195,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Overlay Ad Detection',
           status: 'skip',
           message: 'No overlay/popup ads detected on page',
-          screenshot: null,
+          screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'no_overlay_ads', stepCounter++),
           duration: Date.now() - step15Start,
         });
       }
@@ -1169,30 +1204,20 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Overlay Ad Detection',
         status: 'fail',
         message: `Error detecting overlay ads: ${err.message}`,
-        screenshot: null,
+        screenshot: await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'overlay_ad_error', stepCounter++),
         duration: Date.now() - step15Start,
       });
     }
 
-    // ── Single Screenshot: Dismiss popups, scroll to player, and capture ──
-    const screenshotPath = path.join(SCREENSHOTS_DIR, screenshotName);
-    try {
-      // Dismiss any popups/overlays that appeared during testing
-      await dismissPopups(page);
-      await page.waitForTimeout(300);
-
-      if (playerEl) {
-        await playerEl.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(500);
-      }
-      await page.screenshot({ path: screenshotPath, fullPage: false });
-
-      for (const step of steps) {
-        step.screenshot = screenshotPath;
-      }
-    } catch (err) {
-      console.log(`[Test] Screenshot failed: ${err.message}`);
-    }
+    // ── Final Step: Capture final player state after all tests ──
+    const finalPlayerScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'final_player_state', stepCounter++);
+    steps.push({
+      name: 'Final Player State',
+      status: 'info',
+      message: 'Testing complete. Player state captured.',
+      screenshot: finalPlayerScreenshot,
+      duration: 0,
+    });
 
   } finally {
     // Restore console.log
