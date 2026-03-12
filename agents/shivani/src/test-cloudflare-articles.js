@@ -74,7 +74,7 @@ async function testArticleWithBrowser(browser, url, testIndex) {
     challenges: [],
   };
 
-  const context = await browser.createBrowserContext();
+  const context = await browser.newContext();
   const page = await context.newPage();
 
   // Set viewport for better screenshots
