@@ -238,16 +238,16 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
 
     // Check for Cloudflare challenge and try the proven bypass
-    const hasCloudflareChallenge = await bypassCloudflareIfNeeded(page);
+    const bypassSuccess = await bypassCloudflareIfNeeded(page);
     
-    if (!hasCloudflareChallenge) {
-      console.log('[Discovery] ⚠️ Could not bypass Cloudflare challenge');
+    if (!bypassSuccess) {
+      console.log('[Discovery] ⚠️ Cloudflare challenge bypass failed or timed out');
     } else {
-      console.log('[Discovery] ✓ Ready to extract content');
+      console.log('[Discovery] ✓ Successfully bypassed challenge or no challenge present');
     }
     
-    // Wait for content to fully load
-    await page.waitForTimeout(2000);
+    // Wait for content to fully load after bypass
+    await page.waitForTimeout(3000);
 
     // Wait for any remaining dynamic content
     await page.waitForTimeout(3000);
