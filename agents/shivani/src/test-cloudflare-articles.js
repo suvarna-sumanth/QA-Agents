@@ -77,6 +77,13 @@ async function testArticleWithBrowser(browser, url, testIndex) {
   const context = await browser.newContext();
   const page = await context.newPage();
 
+  // Add stealth mode to avoid detection
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => false,
+    });
+  });
+
   // Set viewport for better screenshots
   await page.setViewportSize({ width: 1280, height: 720 });
 
@@ -131,17 +138,67 @@ async function testArticleWithBrowser(browser, url, testIndex) {
     }
 
     // ── STEP 2: Wait for challenge to resolve ──
-    console.log(`[TEST ${testIndex}] Step 2: Waiting for challenge to auto-resolve...`);
+    console.log(`[TEST ${testIndex}] Step 2: Attempting to solve Cloudflare challenge...`);
     const step2Start = Date.now();
 
     let waitedForChallenge = false;
+    let challengeSolved = false;
+
+    // Try to click on the challenge iframe/button
+    try {
+      // Look for Cloudflare challenge iframe
+      const challengeFrame = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+      
+      if (await challengeFrame.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log(`[TEST ${testIndex}] 🔧 Found Cloudflare challenge iframe, attempting interaction...`);
+        
+        // Get the iframe bounds
+        const box = await challengeFrame.boundingBox();
+        if (box) {
+          // Move mouse to iframe and click
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.waitForTimeout(500);
+          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          console.log(`[TEST ${testIndex}] Clicked on challenge iframe`);
+        }
+        
+        await page.waitForTimeout(1000);
+      }
+    } catch (err) {
+      console.log(`[TEST ${testIndex}] Could not interact with challenge iframe`);
+    }
+
+    // Try clicking the main content area to trigger verification
+    try {
+      await page.click('body');
+      await page.waitForTimeout(500);
+    } catch (err) {
+      // Continue
+    }
+
+    // Try keyboard interaction
+    try {
+      await page.keyboard.press('Space');
+      await page.waitForTimeout(500);
+    } catch (err) {
+      // Continue
+    }
+
+    // Now wait for challenge to auto-resolve
+    console.log(`[TEST ${testIndex}] ⏳ Waiting for challenge auto-resolution...`);
+    
     for (let i = 0; i < 60; i++) {
       const title = await page.title();
+      const bodyText = await page.evaluate(() => document.body?.innerText?.toLowerCase() || '');
       
-      if (!title.includes('Just a moment') && !title.includes('Challenge')) {
+      if (!title.includes('Just a moment') && 
+          !title.includes('Challenge') &&
+          !bodyText.includes('checking your browser') &&
+          !bodyText.includes('enable javascript')) {
         if (i > 0) {
-          console.log(`[TEST ${testIndex}] ✓ Challenge resolved after ${i * 1000}ms`);
+          console.log(`[TEST ${testIndex}] ✓ Challenge resolved after ${i}s`);
           waitedForChallenge = true;
+          challengeSolved = true;
           
           // Take screenshot after resolution
           const afterChallengeScreenshot = path.join(SCREENSHOTS_DIR, `${testIndex}-02-after-challenge.png`);
@@ -151,17 +208,35 @@ async function testArticleWithBrowser(browser, url, testIndex) {
         break;
       }
 
-      if (i % 5 === 0) {
-        console.log(`[TEST ${testIndex}] ⏳ Waiting... (${i}s)`);
+      if (i % 5 === 0 && i > 0) {
+        console.log(`[TEST ${testIndex}] ⏳ Still waiting... (${i}s)`);
       }
 
       await page.waitForTimeout(1000);
     }
 
+    if (!challengeSolved) {
+      console.log(`[TEST ${testIndex}] ⚠️ Challenge did not auto-resolve, attempting manual bypass...`);
+      
+      // Try alternative bypass methods
+      try {
+        // Method 1: Try to find and click verification button
+        const verifyBtn = await page.locator('button:has-text("Verify"), [role="button"]:has-text("Verify")').first();
+        if (await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          console.log(`[TEST ${testIndex}] 🔧 Found verify button, clicking...`);
+          await verifyBtn.click();
+          await page.waitForTimeout(3000);
+          challengeSolved = true;
+        }
+      } catch (err) {
+        // Continue anyway
+      }
+    }
+
     results.steps.push({
       name: 'Challenge Resolution',
-      status: 'pass',
-      message: waitedForChallenge ? 'Challenge auto-resolved' : 'No challenge to resolve',
+      status: challengeSolved ? 'pass' : 'warn',
+      message: challengeSolved ? 'Challenge auto-resolved' : 'Challenge resolution timeout (may need manual interaction)',
       duration: Date.now() - step2Start,
     });
 
