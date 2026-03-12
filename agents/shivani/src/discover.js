@@ -11,6 +11,7 @@
 import { INSTAREAD_USER_AGENT } from './config.js';
 import { launchForUrl } from './browser.js';
 import { bypassChallenge } from './bypass.js';
+import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 import { getCfClearanceCookie, getCfClearanceWithCurl } from './cloudflare-http.js';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
@@ -236,40 +237,17 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     // Simple approach: just load the page
     await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
 
-    // Check for challenge and try to bypass if needed
-    const title = await page.title().catch(() => '');
-    const bodyText = await page.evaluate(() => document.body?.innerText?.toLowerCase() || '').catch(() => '');
-    const hasChallenge = title.toLowerCase().includes('just a moment') ||
-      bodyText.includes('verify you are human') ||
-      bodyText.includes('checking your browser');
+    // Check for Cloudflare challenge and try the proven bypass
+    const hasCloudflareChallenge = await bypassCloudflareIfNeeded(page);
     
-    if (hasChallenge) {
-      console.log('[Discovery] Challenge detected - trying bypass...');
-      try {
-        await bypassChallenge(page, 2);
-        console.log('[Discovery] Bypass attempted - waiting for page to fully load...');
-        
-        // After bypass, wait for the challenge page to be replaced with actual content
-        // The title should change from "Just a moment..." to the real page title
-        let titleChanged = false;
-        for (let i = 0; i < 20; i++) {
-          await page.waitForTimeout(500);
-          const currentTitle = await page.title().catch(() => '');
-          console.log(`[Discovery] Waiting for content... title: "${currentTitle}"`);
-          if (!currentTitle.includes('moment') && currentTitle !== '') {
-            titleChanged = true;
-            console.log('[Discovery] ✓ Page title changed - content loaded!');
-            break;
-          }
-        }
-        
-        if (!titleChanged) {
-          console.log('[Discovery] ⚠️  Page still shows challenge after 10s, but continuing...');
-        }
-      } catch (e) {
-        console.log('[Discovery] Bypass error - continuing anyway');
-      }
+    if (!hasCloudflareChallenge) {
+      console.log('[Discovery] ⚠️ Could not bypass Cloudflare challenge');
+    } else {
+      console.log('[Discovery] ✓ Ready to extract content');
     }
+    
+    // Wait for content to fully load
+    await page.waitForTimeout(2000);
 
     // Wait for any remaining dynamic content
     await page.waitForTimeout(3000);
