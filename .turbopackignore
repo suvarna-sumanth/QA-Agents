@@ -1,0 +1,20 @@
+# Ignore agents directory node_modules - these are backend dependencies
+agents/**/node_modules/**
+agents/**/.next/**
+agents/**/dist/**
+agents/**/*.ttf
+agents/**/*.woff
+agents/**/*.woff2
+agents/**/*.eot
+agents/**/*.html
+agents/**/assets/**
+agents/**/recorder/**
+
+# Ignore other build artifacts
+.git/**
+.next/**
+node_modules/**
+dist/**
+.venv/**
+.env.local
+.env.production.local

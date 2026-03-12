@@ -43,3 +43,12 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+.antigravity
+
+# agent shivani
+agents/shivani/node_modules
+agents/shivani/screenshots
+agents/shivani/reports
+agents/shivani/crawlee_storage
+agents/shivani/storage
+agents/shivani/.chrome-profile*

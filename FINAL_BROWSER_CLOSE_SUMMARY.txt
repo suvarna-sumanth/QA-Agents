@@ -1,0 +1,96 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   BROWSER CLOSING - FINAL FIX SUMMARY                      ║
+║                              March 12, 2026                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+PROBLEM:
+  Browser stayed open INDEFINITELY after job completed
+  - Single browser per domain ✓
+  - Pages closed ✓
+  - But browser stayed in pool ✗
+
+ROOT CAUSE:
+  Browser pooling designed for performance/reuse
+  Browser pool doesn't close browsers automatically
+  Only closes on: app exit or 5-min idle timeout
+
+SOLUTION:
+  ✅ Added closeBrowserForType(type) function
+  ✅ Called after job completion (success or failure)
+  ✅ Immediately frees browser resources
+  ✅ Safe: try-catch prevents job failure if cleanup fails
+
+CHANGES:
+
+1. agents/shivani/src/browser.js
+   └─ New function: closeBrowserForType(protectionType)
+      ├─ Closes browser for specific protection type
+      ├─ Removes from pool
+      ├─ Cleans up tracking
+      └─ Updates stats
+
+2. src/app/api/jobs/route.ts
+   ├─ After job success: Close browsers
+   ├─ After job failure: Close browsers
+   └─ Safe error handling (job still succeeds)
+
+EXPECTED BEHAVIOR:
+
+Before Fix:
+  [Browser] Launching new PerimeterX browser instance...
+  [Browser] Reusing pooled perimeterx browser (idle 0s)
+  [Browser] Reusing pooled perimeterx browser (idle 14s)
+  [Storage] Report saved...
+  [Browser STAYS OPEN] ← PROBLEM!
+
+After Fix:
+  [Browser] Launching new PerimeterX browser instance...
+  [Browser] Reusing pooled perimeterx browser (idle 0s)
+  [Browser] Reusing pooled perimeterx browser (idle 14s)
+  [Browser] Closed pooled perimeterx browser after job completion ← FIXED!
+  [Storage] Report saved...
+  [Browser is now closed] ← Problem solved!
+
+TESTING:
+
+Run: npm run dev
+Expected logs:
+  ✓ [Swarm] Initialized with maxParallel=1
+  ✓ [Browser] Launching new PerimeterX browser instance...
+  ✓ [Browser] Reusing pooled perimeterx browser (idle Xs)
+  ✓ [Browser] Closed pooled perimeterx browser after job completion
+  ✓ [Storage] Report saved...
+  ✓ Job completes with browser CLOSED
+
+BROWSER LIFECYCLE (COMPLETE):
+
+1. Job starts
+2. [Browser] Launching new PerimeterX browser instance
+3. [Browser] New perimeterx browser added to pool for reuse
+4. Articles processed (pages opened/closed)
+5. [Browser] Reusing pooled perimeterx browser (idle 0s)
+6. [Browser] Reusing pooled perimeterx browser (idle Xs) 
+7. All articles done
+8. [Browser] Closed pooled perimeterx browser after job completion ← HERE!
+9. Job report saved
+10. Job completed
+
+IMPACT:
+
+Memory Usage:      Memory freed immediately after job ✓
+Resource Cleanup:  No indefinite browser processes ✓
+Job Success:       Still succeeds even if cleanup fails ✓
+Fallback:          5-min idle timeout still works ✓
+App Exit:          Still works (SIGINT/SIGTERM cleanup) ✓
+
+FILES MODIFIED:    2
+- agents/shivani/src/browser.js
+- src/app/api/jobs/route.ts
+
+LINTER STATUS:     ✓ No errors
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         READY TO TEST!                                    ║
+║                     Run: npm run dev                                       ║
+║           Then submit a job and watch for browser closure!                ║
+╚════════════════════════════════════════════════════════════════════════════╝

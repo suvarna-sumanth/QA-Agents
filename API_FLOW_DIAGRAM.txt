@@ -1,0 +1,215 @@
+═══════════════════════════════════════════════════════════════════════════════
+                         API REPORT FLOW DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+
+SUCCESSFUL FLOW (After Fix)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. Agent Runs Job                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Agent (agent-shivani)                                                     │
+│   ├─ Load URL                                                               │
+│   ├─ Detect challenge                                                       │
+│   ├─ Perform bypass (ULTRA-AGGRESSIVE)                                      │
+│   └─ Gather screenshots/data                                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. Generate Report Object                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   {                                                                         │
+│     "jobId": "job-1773312009782-jofyj7q",                                  │
+│     "agentId": "agent-shivani",                                            │
+│     "steps": [                                                              │
+│       { "action": "...", "screenshot": "/path/to/file.png" },              │
+│       ...                                                                   │
+│     ],                                                                      │
+│     "summary": { "playersFound": 3, ... }                                  │
+│   }                                                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. Upload Screenshots & Report to S3                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   uploadScreenshotsToS3(report, jobId, agentId)                            │
+│   ├─ For each step.screenshot:                                             │
+│   │  └─ storage.saveScreenshot(agentId, jobId, filePath, stepNum)          │
+│   │                                                                         │
+│   │  Key: qa-agents/agent-shivani/{jobId}/screenshots/step-{n}.png         │
+│   │  Saved to S3 ✅                                                         │
+│   │                                                                         │
+│   └─ storage.saveReport(agentId, jobId, report)                            │
+│                                                                             │
+│      Key: qa-agents/agent-shivani/{jobId}/report.json                      │
+│      Saved to S3 ✅                                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. Store in Job Registry (Memory)                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   jobRegistry.set(jobId, {                                                 │
+│     jobId: "job-1773312009782-jofyj7q",                                    │
+│     agentId: "agent-shivani",        ← KEY FIELD!                          │
+│     status: "completed",                                                    │
+│     report: { /* full report object */ }                                   │
+│   })                                                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. User Requests Report via Dashboard                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   GET /api/reports/[jobId]                                                 │
+│   → GET /api/reports/job-1773312009782-jofyj7q                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6. API Endpoint Processes Request                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   File: src/app/api/reports/[jobId]/route.ts                              │
+│                                                                              │
+│   Step A: Try to get from jobRegistry                                      │
+│   ├─ job = jobRegistry.get(jobId)                                          │
+│   ├─ if (job && job.report) {                                              │
+│   │   return report from memory ✅ (FAST PATH)                             │
+│   │ }                                                                       │
+│                                                                              │
+│   Step B: If not in memory, fetch from S3                                  │
+│   └─ if (!job || !job.report) {                                            │
+│      ├─ agentId = job?.agentId || 'agent-shivani'  ← FIXED!               │
+│      ├─ storage.getReport(agentId, jobId)                                  │
+│      │                                                                      │
+│      │  Build S3 Key:                                                      │
+│      │  qa-agents/{agentId}/{jobId}/report.json                            │
+│      │  qa-agents/agent-shivani/job-1773312009782-jofyj7q/report.json      │
+│      │                                                                      │
+│      └─ return normalized report ✅                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7. Return Report to Dashboard                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   HTTP 200 ✅                                                               │
+│   {                                                                         │
+│     "success": true,                                                        │
+│     "report": {                                                             │
+│       "steps": [                                                            │
+│         { "action": "...", "s3Key": "s3://bucket/path/step-1.png" },       │
+│         ...                                                                 │
+│       ],                                                                    │
+│       "summary": { "playersFound": 3, ... }                                │
+│     }                                                                       │
+│   }                                                                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 8. Dashboard Displays Results                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   ✅ Shows all screenshots                                                  │
+│   ✅ Displays test results                                                  │
+│   ✅ Shows summary metrics                                                  │
+│   ✅ All S3 URLs functional                                                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+BEFORE THE FIX: THE PROBLEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 6B used to be:
+│   └─ if (!job || !job.report) {
+│      ├─ agentId = 'agent-shivani'  ← HARDCODED! ❌
+│      └─ storage.getReport('agent-shivani', jobId)
+│
+│         Build S3 Key:
+│         qa-agents/agent-shivani/{jobId}/report.json  ✓ (correct by chance)
+│         
+│         BUT if actual agentId was different:
+│         qa-agents/some-other-agent/{jobId}/report.json  ✗ (key mismatch!)
+│
+│         Result: S3 returns 404 "key does not exist"
+
+
+S3 KEY STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Bucket: qa-agents-reports-prod
+
+Path Structure:
+  qa-agents/
+  ├── agent-shivani/
+  │   └── job-1773312009782-jofyj7q/
+  │       ├── report.json                    ← Main report file
+  │       └── screenshots/
+  │           ├── step-1.png
+  │           ├── step-2.png
+  │           ├── step-3.png
+  │           ├── step-4.png
+  │           └── step-19.png
+  │
+  ├── agent-other/
+  │   └── job-xxxx/
+  │       ├── report.json
+  │       └── screenshots/
+  │           └── ...
+  │
+  └── qa-agents/
+      └── agent-shivani/
+          └── job-1773311049482-9gpputw/
+              ├── report.json
+              └── screenshots/
+                  └── ...
+
+
+THE KEY INSIGHT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The agentId is part of the S3 key path!
+
+Save uses:       const agentId = 'agent-shivani'  ← Correct
+                 Key = qa-agents/agent-shivani/{jobId}/report.json
+
+Fetch used to use: const agentId = 'agent-shivani'  ← Hardcoded
+                   Key = qa-agents/agent-shivani/{jobId}/report.json
+
+But if jobRegistry had:  agentId = 'different-agent'
+Then save would be:      qa-agents/different-agent/{jobId}/report.json
+But fetch would look for: qa-agents/agent-shivani/{jobId}/report.json
+                                    └─ MISMATCH! ❌
+
+FIX: Use job.agentId from registry:
+     const agentId = job?.agentId || 'agent-shivani'
+     Ensures save and fetch use same key ✅
+
+
+WHAT THIS MEANS FOR YOU
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Before:
+  ❌ Screenshot warnings about cleanup
+  ❌ API returns 202 "Job still processing"
+  ❌ Dashboard shows no results
+  ❌ But data IS in S3 (user just can't see it)
+
+After:
+  ✅ Screenshots work (warnings are harmless)
+  ✅ API returns 200 with actual report
+  ✅ Dashboard displays all results properly
+  ✅ S3 data is accessible and visible
+
+═══════════════════════════════════════════════════════════════════════════════

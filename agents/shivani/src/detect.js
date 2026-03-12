@@ -1,0 +1,191 @@
+/**
+ * Player Detection Module
+ * Checks article pages for the <instaread-player/> tag using browser rendering.
+ *
+ * The player is rendered client-side by JavaScript, so HTTP-only scanning
+ * cannot detect it. All detection is done via undetected Chrome browser.
+ */
+import { launchUndetectedBrowser } from './browser.js';
+import { dismissPopups, bypassChallenge } from './bypass.js';
+
+/**
+ * @typedef {Object} DetectionResult
+ * @property {string} url
+ * @property {boolean} hasPlayer
+ * @property {string|null} playerSelector
+ * @property {Object|null} playerAttributes
+ * @property {string} method
+ * @property {string|null} screenshot
+ */
+
+/**
+ * Check a list of URLs for the <instaread-player/> tag.
+ * Uses browser rendering (player is JS-rendered, not in raw HTML).
+ * Takes a screenshot of the player element if found, or the article area if not.
+ * @param {string[]} urls
+ * @returns {Promise<DetectionResult[]>}
+ */
+export async function detectPlayer(urls) {
+  const results = [];
+  const { browser, cleanup } = await launchUndetectedBrowser();
+
+  try {
+    // Suppress rebrowser isolated world warnings (not critical for our use case)
+    const originalLog = console.log;
+    const consoleLog = console.log;
+    console.log = function(...args) {
+      const msg = args[0]?.toString() || '';
+      if (!msg.includes('[rebrowser-patches][frames._context]')) {
+        originalLog.apply(console, args);
+      }
+    };
+
+    const context = browser.contexts()[0];
+
+    for (const url of urls) {
+      console.log(`[Detect] Checking: ${url}`);
+      const page = await context.newPage();
+
+      try {
+        console.log(`[Detect] Loading page...`);
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForTimeout(2000);
+
+        // Check for challenge BEFORE bypass attempt
+        const initialTitle = await page.title();
+        const bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
+        const hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') || 
+                                   bodyText.includes('press & hold') || 
+                                   bodyText.includes('before we continue');
+        
+        if (hasInitialChallenge) {
+          console.log(`[Detect] Challenge detected! Attempting bypass (max 4 attempts, 60s timeout per attempt)...`);
+          try {
+            const challenged = await bypassChallenge(page, 4).catch(err => {
+              console.log(`[Detect] Bypass error (continuing anyway): ${err.message}`);
+              return false;
+            });
+            if (challenged) {
+              console.log(`[Detect] ✓ Challenge bypassed! Waiting for content to load...`);
+              await page.waitForTimeout(5000);
+            } else {
+              console.log(`[Detect] ⚠️  Bypass completed (may have partially resolved), waiting for content...`);
+              await page.waitForTimeout(8000);
+            }
+          } catch (err) {
+            console.log(`[Detect] Bypass exception (continuing): ${err.message}`);
+            await page.waitForTimeout(8000);
+          }
+        } else {
+          console.log(`[Detect] No challenge detected, proceeding...`);
+        }
+
+        // Wait for any remaining challenge to auto-resolve (with shorter intervals)
+        for (let i = 0; i < 8; i++) {
+          await page.waitForTimeout(1000);
+          const title = await page.title();
+          if (!title.toLowerCase().includes('just a moment')) break;
+          console.log(`[Detect] Still waiting for content... (${(i + 1)}s)`);
+        }
+
+        // Wait for JS to render the player (it's a custom element loaded async)
+        console.log(`[Detect] Waiting for player JS to render...`);
+        await page.waitForTimeout(6000);
+
+        // Dismiss any popups/overlays before detection and screenshots
+        await dismissPopups(page);
+
+        // Detect player in the rendered DOM
+        const detection = await page.evaluate(() => {
+          // Primary: <instaread-player> custom element
+          const player = document.querySelector('instaread-player');
+          if (player) {
+            const attrs = {};
+            for (const attr of player.attributes) {
+              attrs[attr.name] = attr.value;
+            }
+            return { found: true, selector: 'instaread-player', attributes: attrs };
+          }
+
+          // Shadow DOM check
+          for (const el of document.querySelectorAll('*')) {
+            if (el.shadowRoot) {
+              const sp = el.shadowRoot.querySelector('instaread-player');
+              if (sp) {
+                return {
+                  found: true,
+                  selector: `${el.tagName.toLowerCase()} >> shadow >> instaread-player`,
+                  attributes: {},
+                };
+              }
+            }
+          }
+
+          // Fallback: class/id/data attributes
+          const fallback = document.querySelector(
+            '[class*="instaread"], [id*="instaread"], [data-player="instaread"]'
+          );
+          if (fallback) {
+            return {
+              found: true,
+              selector: fallback.id ? `#${fallback.id}` : `[class*="instaread"]`,
+              attributes: { fallbackDetection: true },
+            };
+          }
+
+          // Fallback: instaread iframe
+          const iframes = document.querySelectorAll('iframe[src*="instaread"]');
+          if (iframes.length > 0) {
+            return {
+              found: true,
+              selector: 'iframe[src*="instaread"]',
+              attributes: { src: iframes[0].src },
+            };
+          }
+
+          return { found: false, selector: null, attributes: null };
+        });
+
+        if (detection.found) {
+          console.log(`[Detect] FOUND player at ${url}`);
+        } else {
+          console.log(`[Detect] No player at ${url}`);
+        }
+
+        results.push({
+          url,
+          hasPlayer: detection.found,
+          playerSelector: detection.selector,
+          playerAttributes: detection.attributes,
+          method: 'browser',
+        });
+      } catch (err) {
+        console.log(`[Detect] Error on ${url}: ${err.message}`);
+        results.push({
+          url,
+          hasPlayer: false,
+          playerSelector: null,
+          playerAttributes: null,
+          method: 'browser-error',
+          screenshot: null,
+        });
+      } finally {
+        try {
+          if (!page.isClosed?.()) {
+            await page.close().catch(() => {});
+          }
+        } catch (closeErr) {
+          // Ignore page close errors
+        }
+      }
+    }
+  } finally {
+    // Restore console.log
+    console.log = consoleLog;
+    await cleanup();
+  }
+
+  const found = results.filter((r) => r.hasPlayer);
+  console.log(`\n[Detection] ${found.length}/${results.length} articles have <instaread-player/>`);
+  return results;
+}

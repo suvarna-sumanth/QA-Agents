@@ -1,0 +1,19 @@
+{
+  "name": "agent-shivani",
+  "version": "1.0.0",
+  "description": "QA Agent Shivani - Player/UI verification agent using Crawlee + Playwright",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node src/index.js --domain https://www.theatlantic.com"
+  },
+  "dependencies": {
+    "crawlee": "^3.12.0",
+    "dotenv": "^16.5.0",
+    "openai": "^4.80.0",
+    "playwright": "^1.50.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "rebrowser-playwright": "^1.52.0"
+  }
+}
