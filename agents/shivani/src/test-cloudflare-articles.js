@@ -144,7 +144,7 @@ async function testArticleWithBrowser(browser, url, testIndex) {
     let waitedForChallenge = false;
     let challengeSolved = false;
 
-    // Try to click on the challenge iframe/button
+    // Try clicking on the challenge iframe/button
     try {
       // Look for Cloudflare challenge iframe
       const challengeFrame = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
@@ -153,7 +153,7 @@ async function testArticleWithBrowser(browser, url, testIndex) {
         console.log(`[TEST ${testIndex}] 🔧 Found Cloudflare challenge iframe, attempting interaction...`);
         
         // Get the iframe bounds
-        const box = await challengeFrame.boundingBox();
+        const box = await challengeFrame.boundingBox().catch(() => null);
         if (box) {
           // Move mouse to iframe and click
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -184,35 +184,61 @@ async function testArticleWithBrowser(browser, url, testIndex) {
       // Continue
     }
 
+    // Wait a bit for page to potentially navigate
+    await page.waitForTimeout(2000);
+
     // Now wait for challenge to auto-resolve
     console.log(`[TEST ${testIndex}] ⏳ Waiting for challenge auto-resolution...`);
     
     for (let i = 0; i < 60; i++) {
-      const title = await page.title();
-      const bodyText = await page.evaluate(() => document.body?.innerText?.toLowerCase() || '');
-      
-      if (!title.includes('Just a moment') && 
-          !title.includes('Challenge') &&
-          !bodyText.includes('checking your browser') &&
-          !bodyText.includes('enable javascript')) {
-        if (i > 0) {
-          console.log(`[TEST ${testIndex}] ✓ Challenge resolved after ${i}s`);
-          waitedForChallenge = true;
-          challengeSolved = true;
-          
-          // Take screenshot after resolution
-          const afterChallengeScreenshot = path.join(SCREENSHOTS_DIR, `${testIndex}-02-after-challenge.png`);
-          await page.screenshot({ path: afterChallengeScreenshot, fullPage: true });
-          results.screenshots.push(afterChallengeScreenshot);
+      try {
+        const title = await page.title().catch(() => 'error');
+        const bodyText = await page.evaluate(() => document.body?.innerText?.toLowerCase() || '').catch(() => '');
+        
+        if (title !== 'error' && 
+            !title.includes('Just a moment') && 
+            !title.includes('Challenge') &&
+            !bodyText.includes('checking your browser') &&
+            !bodyText.includes('enable javascript')) {
+          if (i > 0) {
+            console.log(`[TEST ${testIndex}] ✓ Challenge resolved after ${i}s`);
+            waitedForChallenge = true;
+            challengeSolved = true;
+            
+            // Take screenshot after resolution
+            const afterChallengeScreenshot = path.join(SCREENSHOTS_DIR, `${testIndex}-02-after-challenge.png`);
+            await page.screenshot({ path: afterChallengeScreenshot, fullPage: true }).catch(() => {});
+            results.screenshots.push(afterChallengeScreenshot);
+          }
+          break;
         }
-        break;
-      }
 
-      if (i % 5 === 0 && i > 0) {
-        console.log(`[TEST ${testIndex}] ⏳ Still waiting... (${i}s)`);
-      }
+        if (i % 5 === 0 && i > 0) {
+          console.log(`[TEST ${testIndex}] ⏳ Still waiting... (${i}s)`);
+        }
 
-      await page.waitForTimeout(1000);
+        await page.waitForTimeout(1000);
+      } catch (err) {
+        // Page context destroyed - this likely means it's navigating
+        if (err.message.includes('Execution context was destroyed') || 
+            err.message.includes('navigation')) {
+          console.log(`[TEST ${testIndex}] 🔄 Page navigating/reloading (context destroyed), waiting for stabilization...`);
+          await page.waitForTimeout(2000);
+          
+          // Check if we're on a new page now
+          try {
+            const newTitle = await page.title();
+            if (!newTitle.includes('Just a moment')) {
+              console.log(`[TEST ${testIndex}] ✓ Challenge resolved (detected via navigation)`);
+              waitedForChallenge = true;
+              challengeSolved = true;
+              break;
+            }
+          } catch (err2) {
+            // Still loading
+          }
+        }
+      }
     }
 
     if (!challengeSolved) {
@@ -282,8 +308,12 @@ async function testArticleWithBrowser(browser, url, testIndex) {
       duration: 0,
     });
   } finally {
-    await page.close();
-    await context.close();
+    try {
+      await page.close();
+      await context.close();
+    } catch (err) {
+      // Ignore close errors
+    }
   }
 
   return results;
