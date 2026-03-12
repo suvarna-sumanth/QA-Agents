@@ -2,7 +2,7 @@
  * Player QA Test Module
  * Tests instaread audio player functionality inside its iframe.
  * All player elements (audio, play button, seekbar, speed control, skip buttons) are inside the iframe.
- * Captures ONE screenshot per article at the end showing the player state.
+ * Captures screenshots at every interaction step to document testing progress.
  */
 import path from 'path';
 import fs from 'fs';
@@ -10,6 +10,63 @@ import { launchUndetectedBrowser } from './browser.js';
 import { dismissPopups, bypassChallenge } from './bypass.js';
 
 const SCREENSHOTS_DIR = path.resolve(import.meta.dirname, '..', 'screenshots');
+
+/**
+ * Helper function to take full page screenshots
+ */
+async function captureFullPageScreenshot(page, screenshotDir, stepName, stepIndex) {
+  try {
+    const screenshotName = `${stepIndex}-${stepName.replace(/\s+/g, '_').toLowerCase()}-full-${Date.now()}.png`;
+    const screenshotPath = path.join(screenshotDir, screenshotName);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    console.log(`[Screenshot] ✓ Full page captured: ${screenshotName}`);
+    return screenshotPath;
+  } catch (err) {
+    console.log(`[Screenshot] Failed full page for "${stepName}": ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Helper function to capture just the player iframe element
+ */
+async function capturePlayerScreenshot(page, screenshotDir, stepName, stepIndex) {
+  try {
+    // Find the player iframe
+    const iframeEl = await page.$('iframe[id="instaread_iframe"]')
+      || await page.$('instaread-player iframe')
+      || await page.$('iframe[src*="instaread"]');
+    
+    if (!iframeEl) {
+      console.log(`[Screenshot] Player iframe not found for "${stepName}"`);
+      return null;
+    }
+
+    // Scroll the iframe into view
+    await iframeEl.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+
+    // Get iframe bounding box and take a screenshot of that region
+    const boundingBox = await iframeEl.boundingBox();
+    if (!boundingBox) {
+      console.log(`[Screenshot] Could not get bounding box for "${stepName}"`);
+      return null;
+    }
+
+    const screenshotName = `${stepIndex}-${stepName.replace(/\s+/g, '_').toLowerCase()}-player-${Date.now()}.png`;
+    const screenshotPath = path.join(screenshotDir, screenshotName);
+    
+    await page.screenshot({
+      path: screenshotPath,
+      clip: boundingBox
+    });
+    console.log(`[Screenshot] ✓ Player captured: ${screenshotName}`);
+    return screenshotPath;
+  } catch (err) {
+    console.log(`[Screenshot] Failed to capture player for "${stepName}": ${err.message}`);
+    return null;
+  }
+}
 
 /**
  * Run full QA test suite on a page with an instaread-player.
@@ -53,10 +110,16 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
   try {
     // ── Step 1: Load page and bypass any challenges ──
     const step1Start = Date.now();
+    let stepCounter = 1;
+    let initialScreenshot = null;
     try {
       console.log(`[Test] Loading page: ${url}`);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
+
+      // Capture initial article page screenshot (full page)
+      initialScreenshot = await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'article_page_loaded', stepCounter++);
+      console.log(`[Test] ✓ Article page screenshot captured`);
 
       // Check for challenge BEFORE bypass attempt
       const initialTitle = await page.title();
@@ -75,6 +138,8 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           if (challenged) {
             console.log(`[Test] ✓ Challenge bypassed, waiting for content to load...`);
             await page.waitForTimeout(4000);
+            const bypassScreenshot = await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'challenge_bypassed', stepCounter++);
+            console.log(`[Test] ✓ Post-bypass screenshot captured`);
           } else {
             console.log(`[Test] ⚠️  Challenge bypass completed (may have timed out), waiting for page...`);
             await page.waitForTimeout(5000);
@@ -102,7 +167,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Page Load',
         status: 'pass',
         message: `Page loaded successfully: ${url}`,
-        screenshot: null,
+        screenshot: initialScreenshot,
         duration: Date.now() - step1Start,
       });
     } catch (err) {
@@ -110,7 +175,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Page Load',
         status: 'fail',
         message: `Failed to load page: ${err.message}`,
-        screenshot: null,
+        screenshot: initialScreenshot,
         duration: Date.now() - step1Start,
       });
       return buildReport(url, steps, startTime);
@@ -119,6 +184,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
     // ── Step 2: Wait for player element on main page ──
     const step2Start = Date.now();
     let playerEl;
+    let playerDetectionScreenshot = null;
     try {
       playerEl = await page.waitForSelector(playerSelector, { timeout: 10000 });
       if (!playerEl) {
@@ -127,13 +193,15 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
       if (playerEl) {
         await playerEl.scrollIntoViewIfNeeded();
         await page.waitForTimeout(500);
+        // Capture the player element
+        playerDetectionScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'player_detected', stepCounter++);
       }
 
       steps.push({
         name: 'Player Detection',
         status: playerEl ? 'pass' : 'fail',
         message: playerEl ? `Player element found via "${playerSelector}"` : 'Player element not found',
-        screenshot: null,
+        screenshot: playerDetectionScreenshot,
         duration: Date.now() - step2Start,
       });
     } catch (err) {
@@ -141,7 +209,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Player Detection',
         status: 'fail',
         message: `Player element not found: ${err.message}`,
-        screenshot: null,
+        screenshot: playerDetectionScreenshot,
         duration: Date.now() - step2Start,
       });
       return buildReport(url, steps, startTime);
@@ -204,7 +272,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Iframe Elements Check',
           status: allElementsFound ? 'pass' : 'fail',
           message: `Iframe accessed | Audio: ${iframeElements.hasAudio}, Play button: ${iframeElements.hasPlayButton}, Seekbar: ${iframeElements.hasSeekbar}, Speed button: ${iframeElements.hasSpeedButton}, Ready: ${iframeElements.audioCanPlay}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'iframe_elements_visible', stepCounter++),
           duration: Date.now() - step3Start,
         });
       } else {
@@ -221,7 +289,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         name: 'Iframe Elements Check',
         status: 'fail',
         message: `Could not check iframe elements: ${err.message}`,
-        screenshot: null,
+        screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'iframe_error', stepCounter++),
         duration: Date.now() - step3Start,
       });
     }
@@ -234,12 +302,16 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         await dismissPopups(page);
         await page.waitForTimeout(500);
 
+        // Capture BEFORE clicking play
+        const beforePlayScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'before_play_click', stepCounter++);
+
         const playBtn = await frame.$('#playCircleBlockButton')
           || await frame.$('#playCircleBlock');
 
         if (playBtn) {
           // Try to click with a timeout since overlays can still intercept
           try {
+            console.log(`[Test] Clicking play button...`);
             await playBtn.click({ timeout: 5000 });
           } catch (clickErr) {
             console.log(`[Test] Click timeout, trying direct script injection...`);
@@ -253,6 +325,9 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           }
           await frame.waitForTimeout(2000);
 
+          // Capture AFTER clicking play
+          const afterPlayScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'after_play_click', stepCounter++);
+
           const isPlaying = await frame.evaluate(() => {
             const audio = document.querySelector('audio#audioElement');
             if (!audio) return false;
@@ -265,7 +340,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             message: isPlaying
               ? 'Audio is playing after clicking play button'
               : 'Play button clicked but audio not detected as playing (may be blocked by autoplay policy)',
-            screenshot: null,
+            screenshot: afterPlayScreenshot,
             duration: Date.now() - step4Start,
           });
         } else {
@@ -323,7 +398,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Audio State Verification',
             status: audioState.readyState >= 2 ? 'pass' : 'fail',
             message: `Audio state: paused=${audioState.paused}, currentTime=${audioState.currentTime?.toFixed(2)}s, duration=${audioState.duration?.toFixed(2)}s, readyState=${audioState.readyState}, volume=${audioState.volume}`,
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'audio_state', stepCounter++),
             duration: Date.now() - step5Start,
           });
         } else {
@@ -331,7 +406,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Audio State Verification',
             status: 'fail',
             message: 'No audio element (audio#audioElement) found in iframe',
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'audio_state_not_found', stepCounter++),
             duration: Date.now() - step5Start,
           });
         }
@@ -340,7 +415,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Audio State Verification',
           status: 'fail',
           message: `Error checking audio state: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'audio_state_error', stepCounter++),
           duration: Date.now() - step5Start,
         });
       }
@@ -358,6 +433,9 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
     const step6Start = Date.now();
     if (frame) {
       try {
+        // Capture BEFORE seeking
+        const beforeSeekScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'before_seek', stepCounter++);
+
         const seekbarTestResult = await frame.evaluate(() => {
           const audio = document.querySelector('audio#audioElement');
           const seekbar = document.querySelector('#audioTrackProgress');
@@ -381,12 +459,16 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           };
         });
 
+        await frame.waitForTimeout(1000);
+        // Capture AFTER seeking
+        const afterSeekScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'after_seek', stepCounter++);
+
         if (seekbarTestResult.success) {
           steps.push({
             name: 'Seekbar / Scrubber Test',
             status: 'pass',
             message: `Seekbar tested: sought to ${seekbarTestResult.targetTime?.toFixed(2)}s (actual: ${seekbarTestResult.actualTime?.toFixed(2)}s, duration: ${seekbarTestResult.duration?.toFixed(2)}s)`,
-            screenshot: null,
+            screenshot: afterSeekScreenshot,
             duration: Date.now() - step6Start,
           });
         } else {
@@ -394,7 +476,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Seekbar / Scrubber Test',
             status: 'fail',
             message: `Seekbar test failed: ${seekbarTestResult.reason}`,
-            screenshot: null,
+            screenshot: beforeSeekScreenshot,
             duration: Date.now() - step6Start,
           });
         }
@@ -403,7 +485,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Seekbar / Scrubber Test',
           status: 'fail',
           message: `Error testing seekbar: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'seekbar_error', stepCounter++),
           duration: Date.now() - step6Start,
         });
       }
@@ -421,6 +503,9 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
     const step7Start = Date.now();
     if (frame) {
       try {
+        // Capture BEFORE forward button click
+        const beforeForwardScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'before_forward_click', stepCounter++);
+
         const skipTestResult = await frame.evaluate(() => {
           const audio = document.querySelector('audio#audioElement');
           const backward15Btn = document.querySelector('#backward15');
@@ -441,35 +526,51 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           };
         });
 
+        // Click forward button if it exists
+        if (skipTestResult.success) {
+          try {
+            const forward15Btn = await frame.$('#farward15');
+            if (forward15Btn) {
+              console.log(`[Test] Clicking forward 15 button...`);
+              await forward15Btn.click({ timeout: 5000 });
+              await frame.waitForTimeout(1500);
+              // Capture AFTER forward button click
+              const afterForwardScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'after_forward_click', stepCounter++);
+            }
+          } catch (clickErr) {
+            console.log(`[Test] Error clicking forward button: ${clickErr.message}`);
+          }
+        }
+
         if (skipTestResult.success) {
           steps.push({
-            name: 'Skip Controls Test',
+            name: 'Skip Controls Test (Forward Button)',
             status: 'pass',
             message: `Skip controls detected: backward15=${skipTestResult.hasBackward15}, forward15=${skipTestResult.hasForward15}`,
-            screenshot: null,
+            screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'skip_controls_final', stepCounter++),
             duration: Date.now() - step7Start,
           });
         } else {
           steps.push({
-            name: 'Skip Controls Test',
+            name: 'Skip Controls Test (Forward Button)',
             status: 'fail',
             message: `Skip controls test failed: ${skipTestResult.reason}`,
-            screenshot: null,
+            screenshot: beforeForwardScreenshot,
             duration: Date.now() - step7Start,
           });
         }
       } catch (err) {
         steps.push({
-          name: 'Skip Controls Test',
+          name: 'Skip Controls Test (Forward Button)',
           status: 'fail',
           message: `Error testing skip controls: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'skip_controls_error', stepCounter++),
           duration: Date.now() - step7Start,
         });
       }
     } else {
       steps.push({
-        name: 'Skip Controls Test',
+        name: 'Skip Controls Test (Forward Button)',
         status: 'skip',
         message: 'No iframe access',
         screenshot: null,
@@ -490,12 +591,14 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           };
         });
 
+        let speedScreenshot = null;
         if (speedTestResult.hasSpeedButton) {
+          speedScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'speed_control_button', stepCounter++);
           steps.push({
             name: 'Speed Control Test',
             status: 'pass',
             message: `Speed button found: text="${speedTestResult.speedButtonText}", class="${speedTestResult.speedButtonClass}"`,
-            screenshot: null,
+            screenshot: speedScreenshot,
             duration: Date.now() - step8Start,
           });
         } else {
@@ -503,7 +606,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
             name: 'Speed Control Test',
             status: 'fail',
             message: 'Speed button (button#audio_speed) not found in iframe',
-            screenshot: null,
+            screenshot: speedScreenshot,
             duration: Date.now() - step8Start,
           });
         }
@@ -512,7 +615,7 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
           name: 'Speed Control Test',
           status: 'fail',
           message: `Error testing speed control: ${err.message}`,
-          screenshot: null,
+          screenshot: await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'speed_control_error', stepCounter++),
           duration: Date.now() - step8Start,
         });
       }
