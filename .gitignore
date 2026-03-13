@@ -52,3 +52,4 @@ agents/shivani/reports
 agents/shivani/crawlee_storage
 agents/shivani/storage
 agents/shivani/.chrome-profile*
+aws-keys*.json
