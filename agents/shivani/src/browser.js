@@ -76,18 +76,74 @@ export async function detectProtection(url) {
 
 /**
  * Launch the right browser for a URL's protection type.
- * Both PerimeterX and Cloudflare now use rebrowser-playwright for CDP leak patching.
- * The original theory that CF needs regular playwright was wrong — CF detects
- * the unpatched CDP Runtime.enable leak, which is exactly what rebrowser fixes.
+ * 
+ * CRITICAL FIX: Cloudflare REQUIRES regular playwright (not rebrowser).
+ * Cloudflare's JavaScript needs the unpatched CDP Runtime.enable to verify
+ * the browser is real. Rebrowser patches this leak, breaking Cloudflare's verification.
+ * 
+ * For Cloudflare: Use simple playwright.launch() with headless mode
+ * For PerimeterX: Use rebrowser-playwright with CDP leak patching
  */
 export async function launchForUrl(url) {
   const protection = await detectProtection(url);
-  // Use rebrowser-playwright for all protection types — its CDP patching
-  // prevents the Runtime.enable leak that both CF and PX detect.
-  // We pass the protection type as poolKey to ensure separate browser contexts
-  // in the pool so they don't interfere with each other.
-  const poolKey = (protection === 'cloudflare' || protection === 'perimeterx') ? protection : 'perimeterx';
-  return launchUndetectedBrowser({ useRebrowser: true, poolKey });
+  
+  if (protection === 'cloudflare') {
+    // CLOUDFLARE: Use simple playwright.launch() - bypass CDP patching entirely
+    return launchCloudflareSimple();
+  } else {
+    // PERIMETERX: Use rebrowser with CDP leak patching
+    const poolKey = protection === 'perimeterx' ? 'perimeterx' : 'perimeterx';
+    return launchUndetectedBrowser({ useRebrowser: true, poolKey });
+  }
+}
+
+/**
+ * Simple Cloudflare browser launcher - avoids CDP patching issues
+ */
+async function launchCloudflareSimple() {
+  try {
+    let browser;
+    try {
+      // Try headed mode first — Cloudflare Turnstile works much better with a visible browser
+      browser = await regularChromium.launch({
+        headless: false,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--disable-dev-shm-usage',
+          '--no-sandbox',
+        ],
+      });
+      console.log('[Browser] Launched Cloudflare browser in headed mode');
+    } catch (err) {
+      // Fallback to headless if display is unavailable (e.g. CI/server)
+      console.log('[Browser] Headed mode unavailable, falling back to headless:', err.message);
+      browser = await regularChromium.launch({
+        headless: true,
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--disable-dev-shm-usage',
+          '--no-sandbox',
+        ],
+      });
+      console.log('[Browser] Launched Cloudflare browser in headless fallback mode');
+    }
+
+    return {
+      browser,
+      cleanup: async () => {
+        try {
+          await browser.close();
+          console.log('[Browser] Closed simple Cloudflare browser');
+        } catch (err) {
+          console.error('[Browser] Error closing browser:', err.message);
+        }
+      },
+      reused: false,
+    };
+  } catch (err) {
+    console.error('[Browser] Failed to launch simple Cloudflare browser:', err.message);
+    throw err;
+  }
 }
 
 /**

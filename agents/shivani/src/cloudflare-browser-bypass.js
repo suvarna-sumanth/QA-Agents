@@ -266,12 +266,16 @@ export async function hasCloudflareChallenge(page) {
  * @returns {Promise<boolean>} True if successful or not a Cloudflare challenge
  */
 export async function bypassCloudflareIfNeeded(page, maxWaitMs = 60000) {
+  console.log('[CF-Bypass] Checking for Cloudflare challenge...');
   const hasChallenge = await hasCloudflareChallenge(page);
+  console.log(`[CF-Bypass] Challenge detected: ${hasChallenge}`);
   
   if (!hasChallenge) {
+    console.log('[CF-Bypass] No Cloudflare challenge detected, proceeding...');
     return true; // Not a Cloudflare challenge, proceed
   }
 
   // It IS Cloudflare, solve it
+  console.log('[CF-Bypass] Cloudflare challenge found, attempting to solve...');
   return await solveCloudflareChallenge(page, maxWaitMs);
 }

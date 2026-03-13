@@ -5,8 +5,9 @@
  * The player is rendered client-side by JavaScript, so HTTP-only scanning
  * cannot detect it. All detection is done via undetected Chrome browser.
  */
-import { launchUndetectedBrowser } from './browser.js';
+import { launchUndetectedBrowser, launchForUrl, detectProtection } from './browser.js';
 import { dismissPopups, bypassChallenge } from './bypass.js';
+import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 
 /**
  * @typedef {Object} DetectionResult
@@ -25,26 +26,54 @@ import { dismissPopups, bypassChallenge } from './bypass.js';
  * @param {string[]} urls
  * @returns {Promise<DetectionResult[]>}
  */
-export async function detectPlayer(urls) {
+export async function detectPlayer(urls, sharedBrowser = null) {
   const results = [];
-  const { browser, cleanup } = await launchUndetectedBrowser();
+
+  // Detect protection type from the first URL to choose the right browser
+  const protection = urls.length > 0 ? await detectProtection(urls[0]) : 'unknown';
+  const isCloudflare = protection === 'cloudflare';
+
+  // Use shared browser if provided, otherwise launch the right one for this protection type
+  let browser, cleanup;
+  if (sharedBrowser) {
+    browser = sharedBrowser.browser;
+    cleanup = async () => {}; // Don't close shared browser
+  } else if (isCloudflare) {
+    ({ browser, cleanup } = await launchForUrl(urls[0]));
+  } else {
+    ({ browser, cleanup } = await launchUndetectedBrowser());
+  }
+
+  // Save original console.log before any override (accessible in finally block)
+  const savedConsoleLog = console.log;
 
   try {
     // Suppress rebrowser isolated world warnings (not critical for our use case)
-    const originalLog = console.log;
-    const consoleLog = console.log;
     console.log = function(...args) {
       const msg = args[0]?.toString() || '';
       if (!msg.includes('[rebrowser-patches][frames._context]')) {
-        originalLog.apply(console, args);
+        savedConsoleLog.apply(console, args);
       }
     };
 
-    const context = browser.contexts()[0];
+    let context, page;
+    if (isCloudflare) {
+      // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
+      context = await browser.newContext();
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
+    } else {
+      // PERIMETERX: Use default context with full stealth scripts
+      context = browser.contexts()[0];
+    }
 
     for (const url of urls) {
       console.log(`[Detect] Checking: ${url}`);
-      const page = await context.newPage();
+      page = await context.newPage();
+      if (isCloudflare) {
+        await page.setViewportSize({ width: 1280, height: 720 });
+      }
 
       try {
         console.log(`[Detect] Loading page...`);
@@ -52,25 +81,60 @@ export async function detectPlayer(urls) {
         await page.waitForTimeout(2000);
 
         // Check for challenge BEFORE bypass attempt
-        const initialTitle = await page.title();
-        const bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
-        const hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') || 
-                                   bodyText.includes('press & hold') || 
-                                   bodyText.includes('before we continue');
-        
+        // Wrap in try/catch — "Execution context was destroyed" means the page is navigating
+        // (Cloudflare auto-resolving), which is a good sign
+        let initialTitle = '';
+        let bodyText = '';
+        let hasInitialChallenge = false;
+        try {
+          initialTitle = await page.title();
+          bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
+          hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') ||
+                                bodyText.includes('press & hold') ||
+                                bodyText.includes('before we continue');
+        } catch (ctxErr) {
+          if (ctxErr.message.includes('Execution context was destroyed') || ctxErr.message.includes('navigation')) {
+            console.log(`[Detect] Page navigating (challenge auto-resolving), waiting...`);
+            await page.waitForTimeout(5000);
+            // Re-check after navigation settles
+            try {
+              initialTitle = await page.title();
+              hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment');
+            } catch (e) {
+              // Still navigating, just continue
+              console.log(`[Detect] Page still settling, proceeding...`);
+            }
+          } else {
+            throw ctxErr;
+          }
+        }
+
         if (hasInitialChallenge) {
-          console.log(`[Detect] Challenge detected! Attempting bypass (max 4 attempts, 60s timeout per attempt)...`);
+          console.log(`[Detect] Challenge detected! Attempting bypass...`);
           try {
-            const challenged = await bypassChallenge(page, 4).catch(err => {
-              console.log(`[Detect] Bypass error (continuing anyway): ${err.message}`);
-              return false;
-            });
-            if (challenged) {
-              console.log(`[Detect] ✓ Challenge bypassed! Waiting for content to load...`);
-              await page.waitForTimeout(5000);
+            if (isCloudflare) {
+              // Use the proven Cloudflare bypass
+              const solved = await bypassCloudflareIfNeeded(page, 90000);
+              if (solved) {
+                console.log(`[Detect] ✓ Cloudflare challenge bypassed!`);
+                await page.waitForTimeout(5000);
+              } else {
+                console.log(`[Detect] ⚠️ Cloudflare bypass timed out`);
+                await page.waitForTimeout(3000);
+              }
             } else {
-              console.log(`[Detect] ⚠️  Bypass completed (may have partially resolved), waiting for content...`);
-              await page.waitForTimeout(8000);
+              // Use PerimeterX bypass
+              const challenged = await bypassChallenge(page, 4).catch(err => {
+                console.log(`[Detect] Bypass error (continuing anyway): ${err.message}`);
+                return false;
+              });
+              if (challenged) {
+                console.log(`[Detect] ✓ Challenge bypassed! Waiting for content to load...`);
+                await page.waitForTimeout(5000);
+              } else {
+                console.log(`[Detect] ⚠️  Bypass completed (may have partially resolved), waiting for content...`);
+                await page.waitForTimeout(8000);
+              }
             }
           } catch (err) {
             console.log(`[Detect] Bypass exception (continuing): ${err.message}`);
@@ -181,7 +245,7 @@ export async function detectPlayer(urls) {
     }
   } finally {
     // Restore console.log
-    console.log = consoleLog;
+    console.log = savedConsoleLog;
     await cleanup();
   }
 

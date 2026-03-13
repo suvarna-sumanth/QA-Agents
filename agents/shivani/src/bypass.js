@@ -66,6 +66,18 @@ export async function dismissPopups(page) {
       '.fixed-overlay',
       '[role="dialog"]',
       '[role="complementary"] [class*="fixed"]',
+
+      // Marketing / lead-gen popups (e.g. "Reserve My Copy", ebook promos)
+      '[class*="pum-container"]',  // Popup Maker plugin
+      '[class*="popmake"]',
+      '[id*="popmake"]',
+      '[class*="sg-popup"]',
+      '[class*="spu-"]',           // Starter Pop-Ups
+      '[class*="hustle-"]',        // Hustle plugin
+      '[class*="icegram"]',
+      '[class*="mailmunch"]',
+      '[class*="sumo-"]',
+      '[class*="wisepops"]',
     ];
     
     // First pass: Remove elements by selector
@@ -118,6 +130,10 @@ export async function dismissPopups(page) {
       '.newsletter-close',
       '.popup-close',
       '.modal-dismiss',
+
+      // Popup Maker plugin close buttons
+      '[class*="pum-close"]',
+      '[class*="popmake-close"]',
     ];
     
     for (const sel of dismissSelectors) {
@@ -137,25 +153,29 @@ export async function dismissPopups(page) {
       }
     }
 
+    // Click any visible "No thanks" / "No, thanks" / "Maybe later" text links
+    const dismissTexts = ['no thanks', 'no, thanks', 'maybe later', 'not now', 'close', 'dismiss'];
+    document.querySelectorAll('a, span, button, div').forEach((el) => {
+      const text = el.innerText?.trim().toLowerCase();
+      if (text && dismissTexts.includes(text) && el.offsetHeight > 0 && el.offsetWidth > 0) {
+        try { el.click(); } catch (e) {}
+      }
+    });
+
     // AGGRESSIVE: Remove all fixed/sticky elements with high z-index blocking content
+    // Any large overlay blocking >30% viewport gets removed — no keyword check needed
     document.querySelectorAll('*').forEach((el) => {
       const style = getComputedStyle(el);
       const isFixed = style.position === 'fixed' || style.position === 'sticky';
-      const hasHighZIndex = parseInt(style.zIndex) > 100; // Lower threshold
+      const hasHighZIndex = parseInt(style.zIndex) > 100;
       const isLarge = el.offsetHeight > window.innerHeight * 0.3; // 30% of viewport
       const isBlocking = isFixed && hasHighZIndex && isLarge;
-      
+
       if (isBlocking) {
-        // Check if it contains ad/popup keywords
-        const classList = el.className.toLowerCase();
-        const isBlockingElement = classList.includes('ad') || 
-                                  classList.includes('popup') || 
-                                  classList.includes('modal') ||
-                                  classList.includes('overlay') ||
-                                  classList.includes('subscribe') ||
-                                  classList.includes('newsletter') ||
-                                  classList.includes('modal');
-        if (isBlockingElement) {
+        // Skip navigation bars (typically at top, short height)
+        const isNavBar = el.tagName === 'NAV' || el.tagName === 'HEADER' ||
+                         (el.offsetHeight < 100 && el.offsetTop < 10);
+        if (!isNavBar) {
           el.remove();
         }
       }

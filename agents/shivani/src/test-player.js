@@ -6,8 +6,9 @@
  */
 import path from 'path';
 import fs from 'fs';
-import { launchUndetectedBrowser } from './browser.js';
+import { launchUndetectedBrowser, launchForUrl, detectProtection } from './browser.js';
 import { dismissPopups, bypassChallenge } from './bypass.js';
+import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 
 const SCREENSHOTS_DIR = path.resolve(import.meta.dirname, '..', 'screenshots');
 
@@ -83,19 +84,41 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
 
   fs.mkdirSync(SCREENSHOTS_DIR, { recursive: true });
 
-  // Use shared browser if provided, otherwise launch new one
+  // Detect protection type to use the right browser and context strategy
+  const protection = await detectProtection(url);
+  const isCloudflare = protection === 'cloudflare';
+
+  // Use shared browser if provided, otherwise launch the right one
   let shouldCleanup = false;
   let { browser, cleanup } = sharedBrowser || { browser: null, cleanup: null };
-  
+
   if (!browser) {
-    const launched = await launchUndetectedBrowser();
-    browser = launched.browser;
-    cleanup = launched.cleanup;
+    if (isCloudflare) {
+      const launched = await launchForUrl(url);
+      browser = launched.browser;
+      cleanup = launched.cleanup;
+    } else {
+      const launched = await launchUndetectedBrowser();
+      browser = launched.browser;
+      cleanup = launched.cleanup;
+    }
     shouldCleanup = true; // Only clean up if we launched it
   }
-  
-  const context = browser.contexts()[0];
-  const page = await context.newPage();
+
+  let context, page;
+  if (isCloudflare) {
+    // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
+    context = await browser.newContext();
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    });
+    page = await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 720 });
+  } else {
+    // PERIMETERX: Use default context with full stealth scripts
+    context = browser.contexts()[0];
+    page = await context.newPage();
+  }
 
   // Suppress rebrowser isolated world warnings (not critical for our use case)
   const originalLog = console.log;
@@ -122,19 +145,44 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
       console.log(`[Test] ✓ Article page screenshot captured`);
 
       // Check for challenge BEFORE bypass attempt
-      const initialTitle = await page.title();
-      const bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
-      const hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') || 
-                                 bodyText.includes('press & hold') || 
-                                 bodyText.includes('before we continue');
+      // Wrap in try/catch — "Execution context was destroyed" means page is navigating (good sign)
+      let initialTitle = '';
+      let bodyText = '';
+      let hasInitialChallenge = false;
+      try {
+        initialTitle = await page.title();
+        bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
+        hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') ||
+                              bodyText.includes('press & hold') ||
+                              bodyText.includes('before we continue');
+      } catch (ctxErr) {
+        if (ctxErr.message.includes('Execution context was destroyed') || ctxErr.message.includes('navigation')) {
+          console.log(`[Test] Page navigating (challenge auto-resolving), waiting...`);
+          await page.waitForTimeout(5000);
+          try {
+            initialTitle = await page.title();
+            hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment');
+          } catch (e) {
+            console.log(`[Test] Page still settling, proceeding...`);
+          }
+        } else {
+          throw ctxErr;
+        }
+      }
 
       if (hasInitialChallenge) {
         console.log(`[Test] Challenge detected! Attempting active bypass...`);
         try {
-          const challenged = await bypassChallenge(page, 3).catch(err => {
-            console.log(`[Test] Bypass error (continuing anyway): ${err.message}`);
-            return false;
-          });
+          let challenged = false;
+          if (isCloudflare) {
+            // Use the proven Cloudflare bypass
+            challenged = await bypassCloudflareIfNeeded(page, 90000);
+          } else {
+            challenged = await bypassChallenge(page, 3).catch(err => {
+              console.log(`[Test] Bypass error (continuing anyway): ${err.message}`);
+              return false;
+            });
+          }
           if (challenged) {
             console.log(`[Test] ✓ Challenge bypassed, waiting for content to load...`);
             await page.waitForTimeout(4000);
@@ -193,6 +241,9 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
       if (playerEl) {
         await playerEl.scrollIntoViewIfNeeded();
         await page.waitForTimeout(500);
+        // Dismiss popups again before capturing (they can re-appear on scroll/delay)
+        await dismissPopups(page);
+        await page.waitForTimeout(300);
         // Capture the player element
         playerDetectionScreenshot = await capturePlayerScreenshot(page, SCREENSHOTS_DIR, 'player_detected', stepCounter++);
       }

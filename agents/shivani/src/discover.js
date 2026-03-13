@@ -9,7 +9,7 @@
  * 3. Fall back to browser automation with Turnstile bypass
  */
 import { INSTAREAD_USER_AGENT } from './config.js';
-import { launchForUrl } from './browser.js';
+import { launchForUrl, detectProtection } from './browser.js';
 import { bypassChallenge } from './bypass.js';
 import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 import { getCfClearanceCookie, getCfClearanceWithCurl } from './cloudflare-http.js';
@@ -227,15 +227,30 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     console.log(`[Discovery] HTTP bypass error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  const protection = await detectProtection(domain);
   const { browser, cleanup } = await launchForUrl(domain);
 
   try {
-    const context = browser.contexts()[0];
-    const page = context.pages()[0] || await context.newPage();
+    let context, page;
 
-    console.log(`[Discovery] Loading homepage: ${domain}`);
-    // Simple approach: just load the page
-    await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    if (protection === 'cloudflare') {
+      // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
+      // (matching the proven approach from test-cloudflare-articles.js)
+      context = await browser.newContext();
+      await context.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      });
+      page = await context.newPage();
+      await page.setViewportSize({ width: 1280, height: 720 });
+    } else {
+      // PERIMETERX / OTHER: Use the default context which already has
+      // full stealth scripts (chrome runtime, WebGL, plugins, etc.)
+      context = browser.contexts()[0];
+      page = context.pages()[0] || await context.newPage();
+    }
+
+    console.log(`[Discovery] Loading homepage: ${domain} (protection: ${protection})`);
+    await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
 
     // Check for Cloudflare challenge and try the proven bypass (allow up to 90 seconds)
     const bypassSuccess = await bypassCloudflareIfNeeded(page, 90000);
