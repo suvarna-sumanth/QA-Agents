@@ -76,8 +76,10 @@ async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string
         
         // CLEANUP: Delete local file after successful upload
         try {
-          const { unlinkSync } = await import('fs');
-          unlinkSync(localPath);
+          const { existsSync, unlinkSync } = await import('fs');
+          if (existsSync(localPath)) {
+            unlinkSync(localPath);
+          }
         } catch (unlinkErr) {
           console.warn(`[Cleanup] Failed to delete local screenshot ${localPath}:`, unlinkErr);
         }

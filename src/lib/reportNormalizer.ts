@@ -168,7 +168,8 @@ function generateAISummary(rawReport: RawReport, summary: any, passRate: number)
   const articleCount = rawReport.metadata?.articlesWithPlayer || 1;
   const status = passRate >= 100 ? 'excellent' : passRate >= 80 ? 'good' : passRate >= 50 ? 'concerning' : 'critical';
   
-  let text = `The QA analysis for **${new URL(rawReport.target).hostname}** is complete. Over a span of **${Math.round(rawReport.duration! / 1000)} seconds**, the Shivani Agent evaluated **${articleCount} article(s)** across the domain.\n\n`;
+  const targetUrl = rawReport.target.includes('://') ? rawReport.target : `https://${rawReport.target}`;
+  let text = `The QA analysis for **${new URL(targetUrl).hostname}** is complete. Over a span of **${Math.round(rawReport.duration! / 1000)} seconds**, the Shivani Agent evaluated **${articleCount} article(s)** across the domain.\n\n`;
   
   if (passRate >= 100) {
     text += `### Executive Summary: HEALTHY\nAll player modules are functioning perfectly. The Instaread player was successfully detected, triggered, and verified for audio playback, seek functionality, and speed controls. AdPushup units were also correctly rendered without blocking the user experience.`;
