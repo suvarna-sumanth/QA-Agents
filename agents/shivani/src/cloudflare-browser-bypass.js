@@ -37,27 +37,54 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
       });
     }).catch(() => {});
 
+    // Step 1b: Wait a moment for the challenge iframe to load into the DOM
+    console.log('[CF-Bypass] Waiting for challenge iframe to appear...');
+    await page.waitForTimeout(2000);
+
     // Step 2: Try to interact with the challenge iframe
     try {
-      const challengeFrame = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
+      console.log('[CF-Bypass] Looking for Turnstile iframe to click...');
       
-      if (await challengeFrame.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('[CF-Bypass] Found Turnstile iframe, clicking...');
+      // Try multiple approaches to find and click the iframe
+      const iframeCount = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').count();
+      console.log(`[CF-Bypass] Found ${iframeCount} Turnstile iframe(s)`);
+      
+      if (iframeCount > 0) {
+        const challengeFrame = await page.locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first();
         
-        // Get iframe bounds and click center
-        const box = await challengeFrame.boundingBox().catch(() => null);
-        if (box) {
-          // Simulate human-like mouse movement
-          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-          await page.waitForTimeout(500);
-          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-          console.log('[CF-Bypass] ✓ Clicked on challenge iframe');
+        // Try to click directly on the iframe
+        try {
+          await challengeFrame.click({ timeout: 5000 });
+          console.log('[CF-Bypass] ✓ Clicked Turnstile iframe directly');
+        } catch (err1) {
+          console.log('[CF-Bypass] Direct click failed, trying bounding box method...');
+          
+          // Try using bounding box and mouse click
+          const box = await challengeFrame.boundingBox().catch(() => null);
+          if (box) {
+            // Move to center and click
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.waitForTimeout(500);
+            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+            console.log('[CF-Bypass] ✓ Clicked iframe via bounding box');
+          }
         }
         
         await page.waitForTimeout(1000);
+      } else {
+        console.log('[CF-Bypass] ⚠️ No Turnstile iframe found, trying page-level click...');
+        
+        // If no iframe found, try clicking on body and pressing space
+        // Cloudflare might have already injected the challenge differently
+        try {
+          await page.click('body');
+          await page.waitForTimeout(300);
+        } catch (err) {
+          // Continue anyway
+        }
       }
     } catch (err) {
-      console.log('[CF-Bypass] Could not interact with iframe, continuing...');
+      console.log(`[CF-Bypass] Error during iframe interaction: ${err.message}`);
     }
 
     // Step 3: Try body click and keyboard interaction
@@ -186,9 +213,10 @@ export async function hasCloudflareChallenge(page) {
 /**
  * Safe wrapper - only bypass if Cloudflare detected, leave PerimeterX alone
  * @param {Page} page - Playwright page object
+ * @param {number} maxWaitMs - Maximum time to wait for resolution
  * @returns {Promise<boolean>} True if successful or not a Cloudflare challenge
  */
-export async function bypassCloudflareIfNeeded(page) {
+export async function bypassCloudflareIfNeeded(page, maxWaitMs = 60000) {
   const hasChallenge = await hasCloudflareChallenge(page);
   
   if (!hasChallenge) {
@@ -196,5 +224,5 @@ export async function bypassCloudflareIfNeeded(page) {
   }
 
   // It IS Cloudflare, solve it
-  return await solveCloudflareChallenge(page);
+  return await solveCloudflareChallenge(page, maxWaitMs);
 }

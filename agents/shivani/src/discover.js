@@ -237,8 +237,8 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     // Simple approach: just load the page
     await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
 
-    // Check for Cloudflare challenge and try the proven bypass
-    const bypassSuccess = await bypassCloudflareIfNeeded(page);
+    // Check for Cloudflare challenge and try the proven bypass (allow up to 90 seconds)
+    const bypassSuccess = await bypassCloudflareIfNeeded(page, 90000);
     
     if (!bypassSuccess) {
       console.log('[Discovery] ⚠️ Cloudflare challenge bypass failed or timed out');
