@@ -41,6 +41,23 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
     console.log('[CF-Bypass] Waiting for challenge iframe to appear...');
     await page.waitForTimeout(2000);
 
+    // Debug: Log page structure to understand what we're dealing with
+    const debugInfo = await page.evaluate(() => {
+      return {
+        title: document.title,
+        bodyHTML: document.body?.innerHTML?.substring(0, 500) || 'no body',
+        allScripts: document.querySelectorAll('script').length,
+        allIframes: Array.from(document.querySelectorAll('iframe')).map(f => ({
+          src: f.src,
+          id: f.id,
+          className: f.className,
+          visible: f.offsetHeight > 0
+        }))
+      };
+    }).catch(() => ({}));
+    
+    console.log(`[CF-Bypass] Page debug info:`, JSON.stringify(debugInfo, null, 2));
+
     // Step 2: Try to interact with the challenge iframe
     try {
       console.log('[CF-Bypass] Looking for Turnstile iframe to click...');
@@ -72,15 +89,33 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
         
         await page.waitForTimeout(1000);
       } else {
-        console.log('[CF-Bypass] ⚠️ No Turnstile iframe found, trying page-level click...');
+        console.log('[CF-Bypass] ⚠️ No Turnstile iframe found, trying alternate methods...');
         
-        // If no iframe found, try clicking on body and pressing space
-        // Cloudflare might have already injected the challenge differently
+        // Method 1: Try to find ANY iframe and interact with it
+        const allIframes = await page.locator('iframe').count();
+        console.log(`[CF-Bypass] Found ${allIframes} total iframe(s) on page`);
+        
+        // Method 2: Try clicking in the center of the viewport (where challenge usually appears)
         try {
+          console.log('[CF-Bypass] Trying viewport center click...');
+          const viewportSize = page.viewportSize();
+          if (viewportSize) {
+            await page.mouse.move(viewportSize.width / 2, viewportSize.height / 2);
+            await page.waitForTimeout(300);
+            await page.mouse.click(viewportSize.width / 2, viewportSize.height / 2);
+            console.log('[CF-Bypass] ✓ Clicked viewport center');
+          }
+        } catch (err) {
+          console.log('[CF-Bypass] Viewport center click failed');
+        }
+        
+        // Method 3: Try body click
+        try {
+          console.log('[CF-Bypass] Trying body click...');
           await page.click('body');
           await page.waitForTimeout(300);
         } catch (err) {
-          // Continue anyway
+          console.log('[CF-Bypass] Body click failed');
         }
       }
     } catch (err) {
