@@ -16,7 +16,7 @@ This is **not** a general-purpose web scraper like Firecrawl. The scope is delib
 |---|---|---|
 | **Purpose** | QA testing of a specific widget | General web scraping/crawling |
 | **Output** | Pass/fail test reports with screenshots | Cleaned content (markdown, HTML) |
-| **Bot bypass** | Cloudflare Turnstile + PerimeterX press-hold | Basic retry/rate limiting |
+| **Bot bypass** | Cloudflare + PerimeterX + TownNews + reCAPTCHA v2 (Audio AI) | Basic retry/rate limiting |
 | **Browser interaction** | Deep DOM interaction (click play, seek, speed) | Minimal (just content extraction) |
 | **Scope** | Instaread audio player only | Any website content |
 | **Architecture** | Agent-based swarm with phases | Crawl + extract pipeline |
@@ -54,11 +54,11 @@ This is **not** a general-purpose web scraper like Firecrawl. The scope is delib
                ▼
 ┌──────────────────────────────┐
 │  Browser Automation Layer    │
-│  ├─ Playwright (Cloudflare)  │
-│  ├─ rebrowser-playwright     │
-│  │   (PerimeterX)            │
-│  ├─ curl-impersonate (HTTP)  │
-│  └─ Browser Pool Manager    │
+│  ├─ Playwright (Cloudflare / TownNews)   │
+│  ├─ rebrowser-playwright (PerimeterX)   │
+│  ├─ OpenAI Whisper (reCAPTCHA Audio)   │
+│  ├─ curl-impersonate (HTTP)            │
+│  └─ Browser Pool Manager               │
 └──────────────┬───────────────┘
                │
                ▼
@@ -107,7 +107,7 @@ For each discovered URL, a detection agent:
 
 1. Launches the appropriate browser (see bypass strategy below)
 2. Navigates to the article page
-3. Handles any bot challenge (Cloudflare or PerimeterX)
+3. Handles any bot challenge (Cloudflare, PerimeterX, TownNews, or reCAPTCHA)
 4. Dismisses popups, cookie banners, overlays
 5. Searches for `<instaread-player>` in the DOM
 6. Takes a screenshot as evidence
@@ -168,8 +168,9 @@ The dashboard polls `GET /api/reports/normalized` every 5 seconds. Reports are n
 
 ### Bot Protection Bypass
 - **curl-impersonate** — Chrome TLS fingerprinting for HTTP-level Cloudflare bypass
+- **OpenAI Whisper API** — Automated audio-to-text solver for reCAPTCHA v2 image puzzles
 - **Stealth injection scripts** — spoofs `navigator.webdriver`, WebGL renderer, plugins, screen properties, stack traces
-- **Behavioral simulation** — human-like mouse trajectories, micro-jitter, randomized hold durations
+- **Behavioral simulation** — human-like mouse trajectories, micro-jitter, randomized hold durations, background reCAPTCHA scoring support
 
 ### Data & Storage
 - **AWS S3** — screenshots and report JSON

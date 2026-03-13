@@ -6,9 +6,10 @@
  */
 import path from 'path';
 import fs from 'fs';
-import { launchUndetectedBrowser, launchForUrl, detectProtection } from './browser.js';
+import { launchUndetectedBrowser, launchForUrl, detectProtection, applyStealthScripts } from './browser.js';
 import { dismissPopups, bypassChallenge } from './bypass.js';
 import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
+import { INSTAREAD_USER_AGENT } from './config.js';
 
 const SCREENSHOTS_DIR = path.resolve(import.meta.dirname, '..', 'screenshots');
 
@@ -87,13 +88,14 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
   // Detect protection type to use the right browser and context strategy
   const protection = await detectProtection(url);
   const isCloudflare = protection === 'cloudflare';
+  const isTownNews = protection === 'townnews';
 
   // Use shared browser if provided, otherwise launch the right one
   let shouldCleanup = false;
   let { browser, cleanup } = sharedBrowser || { browser: null, cleanup: null };
 
   if (!browser) {
-    if (isCloudflare) {
+    if (isCloudflare || isTownNews) {
       const launched = await launchForUrl(url);
       browser = launched.browser;
       cleanup = launched.cleanup;
@@ -106,12 +108,12 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
   }
 
   let context, page;
-  if (isCloudflare) {
-    // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
-    context = await browser.newContext();
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+  if (isCloudflare || isTownNews) {
+    // CLOUDFLARE & TOWNNEWS: Fresh context with stealth applied BEFORE navigation
+    context = await browser.newContext({
+      userAgent: INSTAREAD_USER_AGENT
     });
+    await applyStealthScripts(context);
     page = await context.newPage();
     await page.setViewportSize({ width: 1280, height: 720 });
   } else {
@@ -151,10 +153,13 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
       let hasInitialChallenge = false;
       try {
         initialTitle = await page.title();
+        const currentUrl = page.url();
         bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
         hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') ||
                               bodyText.includes('press & hold') ||
-                              bodyText.includes('before we continue');
+                              bodyText.includes('before we continue') ||
+                              bodyText.includes('please wait while we attempt to load the requested page') ||
+                              currentUrl.includes('client_captcha');
       } catch (ctxErr) {
         if (ctxErr.message.includes('Execution context was destroyed') || ctxErr.message.includes('navigation')) {
           console.log(`[Test] Page navigating (challenge auto-resolving), waiting...`);
@@ -174,17 +179,18 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
         console.log(`[Test] Challenge detected! Attempting active bypass...`);
         try {
           let challenged = false;
-          if (isCloudflare) {
+          if (isCloudflare && initialTitle.toLowerCase().includes('just a moment')) {
             // Use the proven Cloudflare bypass
             challenged = await bypassCloudflareIfNeeded(page, 90000);
           } else {
+            // Use general bypass handler (PerimeterX, TownNews, etc.)
             challenged = await bypassChallenge(page, 3).catch(err => {
               console.log(`[Test] Bypass error (continuing anyway): ${err.message}`);
               return false;
             });
           }
           if (challenged) {
-            console.log(`[Test] ✓ Challenge bypassed, waiting for content to load...`);
+            console.log(`[Test] ✓ Challenge handled, waiting for content to load...`);
             await page.waitForTimeout(4000);
             const bypassScreenshot = await captureFullPageScreenshot(page, SCREENSHOTS_DIR, 'challenge_bypassed', stepCounter++);
             console.log(`[Test] ✓ Post-bypass screenshot captured`);

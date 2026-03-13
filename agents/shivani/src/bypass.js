@@ -1,18 +1,20 @@
 /**
  * Bot Challenge Bypass & Page Cleanup Module
  * Handles bot protection challenges and dismisses popups/overlays.
- * 
- * NOTE: Cloudflare Turnstile is extremely difficult to bypass in headless mode due to:
- * - Device fingerprinting (detects headless Chrome)
- * - Behavioral analysis (detects bot-like mouse/keyboard patterns)
- * - JavaScript fingerprinting (detects CDP/automation APIs)
- * 
- * Best strategy: Request the page with curl/fetch first to get cf_clearance cookie,
- * then use that cookie in Playwright. But since we need browser rendering, we instead:
- * 1. Try direct click bypass
- * 2. Monitor for cf_clearance cookie/page navigation
- * 3. Fall back to proceeding with whatever content we have
  */
+import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
+import { tmpdir } from 'os';
+import dotenv from 'dotenv';
+
+// Load environment variables for OpenAI
+const envPath = path.resolve(import.meta.dirname, '../../../.env');
+dotenv.config({ path: envPath });
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 /**
  * Dismiss common popups, modals, cookie banners, and newsletter overlays.
@@ -247,6 +249,12 @@ export async function bypassChallenge(page, maxRetries = 4) {
         // If we reach here, Cloudflare handler either succeeded or timed out
         // Either way, we consider this a "handled" attempt
         return true;
+      } else if (challengeType === 'townnews-captcha') {
+        await handleTownNewsCaptcha(page);
+        return true;
+      } else if (challengeType === 'recaptcha-v2') {
+        await handleReCaptchaV2(page);
+        return true;
       } else {
         console.log(`[Bypass] Unknown challenge type: "${challengeType}"`);
         await page.waitForTimeout(3000);
@@ -321,6 +329,25 @@ async function detectChallenge(page) {
     ) {
       return 'cloudflare-turnstile';
     }
+
+    // TownNews / BLOX CMS captcha
+    if (
+      bodyText.includes('please wait while we attempt to load the requested page') ||
+      bodyText.includes('bot detected') ||
+      bodyText.includes('challenge failed') ||
+      bodyHTML.includes('client_captcha') ||
+      bodyHTML.includes('tncms-recaptcha') ||
+      window.location.pathname.includes('client_captcha') ||
+      window.location.href.includes('/_services/v1/client_captcha/')
+    ) {
+      return 'townnews-captcha';
+    }
+
+    // reCAPTCHA / hCaptcha puzzles
+    const reCaptchaIframe = document.querySelector('iframe[src*="google.com/recaptcha"]');
+    const hCaptchaIframe = document.querySelector('iframe[src*="hcaptcha.com"]');
+    if (reCaptchaIframe) return 'recaptcha-v2';
+    if (hCaptchaIframe) return 'title-hcaptcha';
 
     return null;
   });
@@ -651,4 +678,148 @@ async function handleCloudflareTurnstile(page) {
 
   console.log('[Bypass] Timeout after 90s - verification may have failed or site doesn\'t use cf_clearance');
   console.log('[Bypass] Status:', successIndicators);
+}
+
+/**
+ * Handle TownNews / BLOX CMS "Please wait" captcha.
+ * This usually relies on background reCAPTCHA Enterprise scoring.
+ */
+async function handleTownNewsCaptcha(page) {
+  console.log('[Bypass] Handling TownNews "Please wait" challenge...');
+  
+  // Strategy: Wait for redirect while simulating occasional human activity
+  const startTime = Date.now();
+  const timeout = 75000; // 75s timeout (reCAPTCHA can take a while)
+  let reloadCount = 0;
+  
+  while (Date.now() - startTime < timeout) {
+    const url = page.url();
+    if (!url.includes('client_captcha')) {
+      console.log(`[Bypass] ✓ TownNews challenge resolved (URL: ${url})`);
+      return;
+    }
+    
+    // Check for failure message
+    const bodyText = await page.evaluate(() => document.body?.innerText || '');
+    if (bodyText.includes('Bot detected') || bodyText.toLowerCase().includes('challenge failed')) {
+      reloadCount++;
+      if (reloadCount > 3) {
+        console.log('[Bypass] ❌ Persistent TownNews bot detection. Giving up on this attempt.');
+        return;
+      }
+      console.log(`[Bypass] ⚠️ TownNews detected bot (Attempt ${reloadCount}/3). Refreshing in ${reloadCount * 2}s...`);
+      await page.waitForTimeout(reloadCount * 2000);
+      await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+      await page.waitForTimeout(3000);
+      continue;
+    }
+
+    // Simulate slight mouse movement to help background scoring
+    try {
+      const viewport = page.viewportSize() || { width: 1280, height: 800 };
+      const x = 100 + (Math.random() * (viewport.width - 200));
+      const y = 100 + (Math.random() * (viewport.height - 200));
+      await page.mouse.move(x, y, { steps: 5 });
+    } catch (e) {}
+
+    await page.waitForTimeout(3000);
+    
+    if ((Date.now() - startTime) % 15000 < 3000) {
+      console.log(`[Bypass] Still waiting for TownNews redirect... (${Math.round((Date.now() - startTime) / 1000)}s)`);
+    }
+  }
+  
+  console.log('[Bypass] TownNews challenge timeout');
+}
+
+/**
+ * Handle reCAPTCHA v2 using Audio Accessibility + OpenAI Whisper.
+ */
+async function handleReCaptchaV2(page) {
+  console.log('[Bypass] 🧩 Handling reCAPTCHA v2 Challenge...');
+
+  try {
+    // 1. Click the "I'm not a robot" checkbox in the anchor frame
+    const anchorFrame = page.frames().find(f => f.url().includes('api2/anchor'));
+    if (anchorFrame) {
+      const isChecked = await anchorFrame.evaluate(() => {
+        return !!document.querySelector('.recaptcha-checkbox-checked');
+      });
+
+      if (!isChecked) {
+        console.log('[Bypass] Clicking reCAPTCHA checkbox...');
+        await anchorFrame.click('#recaptcha-anchor', { timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(2000);
+      }
+    }
+
+    // 2. Locate the challenge iframe (bframe)
+    let bFrame = page.frames().find(f => f.url().includes('api2/bframe'));
+    if (!bFrame) {
+      // Sometimes it takes a moment to pop up
+      await page.waitForTimeout(2000);
+      bFrame = page.frames().find(f => f.url().includes('api2/bframe'));
+    }
+
+    if (!bFrame) {
+      console.log('[Bypass] No reCAPTCHA challenge popup detected (solved by checkbox?).');
+      return;
+    }
+
+    // 3. Switch to Audio Challenge
+    const audioButton = bFrame.locator('#recaptcha-audio-button');
+    if (await audioButton.isVisible()) {
+      console.log('[Bypass] Switching to audio challenge...');
+      await audioButton.click();
+      await page.waitForTimeout(2000);
+    }
+
+    // 4. Solve the audio
+    const audioSource = await bFrame.locator('#audio-source').getAttribute('src').catch(() => null);
+    if (!audioSource) {
+      console.log('[Bypass] ❌ No audio source found. reCAPTCHA may have blocked the request.');
+      return;
+    }
+
+    console.log('[Bypass] Solving audio challenge using Whisper AI...');
+    const transcription = await solveAudioWithWhisper(audioSource);
+
+    if (transcription) {
+      console.log(`[Bypass] Transcription: "${transcription}"`);
+      await bFrame.fill('#audio-response', transcription);
+      await bFrame.click('#recaptcha-verify-button');
+      await page.waitForTimeout(2000);
+      console.log('[Bypass] ✓ audio response submitted');
+    }
+
+  } catch (err) {
+    console.log(`[Bypass] ❌ reCAPTCHA solver error: ${err.message}`);
+  }
+}
+
+/**
+ * Use OpenAI Whisper to solve audio challenge.
+ */
+async function solveAudioWithWhisper(audioUrl) {
+  try {
+    const response = await fetch(audioUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const tempFile = path.join(tmpdir(), `recaptcha_${Date.now()}.mp3`);
+    fs.writeFileSync(tempFile, buffer);
+
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(tempFile),
+      model: "whisper-1",
+    });
+
+    // Cleanup
+    try { fs.unlinkSync(tempFile); } catch (e) {}
+    
+    return transcription.text;
+  } catch (err) {
+    console.error(`[Bypass] Whisper solver error: ${err.message}`);
+    return null;
+  }
 }

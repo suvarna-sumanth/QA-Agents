@@ -9,8 +9,8 @@
  * 3. Fall back to browser automation with Turnstile bypass
  */
 import { INSTAREAD_USER_AGENT } from './config.js';
-import { launchForUrl, detectProtection } from './browser.js';
-import { bypassChallenge } from './bypass.js';
+import { launchUndetectedBrowser, launchForUrl, detectProtection, applyStealthScripts } from './browser.js';
+import { dismissPopups, bypassChallenge } from './bypass.js';
 import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 import { getCfClearanceCookie, getCfClearanceWithCurl } from './cloudflare-http.js';
 import OpenAI from 'openai';
@@ -233,13 +233,12 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
   try {
     let context, page;
 
-    if (protection === 'cloudflare') {
-      // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
-      // (matching the proven approach from test-cloudflare-articles.js)
-      context = await browser.newContext();
-      await context.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    if (protection === 'cloudflare' || protection === 'townnews') {
+      // CLOUDFLARE & TOWNNEWS: Fresh context with full stealth applied BEFORE navigation
+      context = await browser.newContext({
+        userAgent: INSTAREAD_USER_AGENT
       });
+      await applyStealthScripts(context);
       page = await context.newPage();
       await page.setViewportSize({ width: 1280, height: 720 });
     } else {
@@ -252,11 +251,19 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     console.log(`[Discovery] Loading homepage: ${domain} (protection: ${protection})`);
     await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
 
-    // Check for Cloudflare challenge and try the proven bypass (allow up to 90 seconds)
-    const bypassSuccess = await bypassCloudflareIfNeeded(page, 90000);
+    // Check for challenges and solve them
+    let bypassSuccess = false;
+    if (protection === 'cloudflare') {
+      bypassSuccess = await bypassCloudflareIfNeeded(page, 90000);
+    } else if (protection === 'townnews') {
+      bypassSuccess = await bypassChallenge(page, 3);
+    } else {
+      // For unknown, try both starting with general
+      bypassSuccess = await bypassChallenge(page, 2);
+    }
     
     if (!bypassSuccess) {
-      console.log('[Discovery] ⚠️ Cloudflare challenge bypass failed or timed out');
+      console.log('[Discovery] ⚠️ Challenge bypass failed or timed out');
     } else {
       console.log('[Discovery] ✓ Successfully bypassed challenge or no challenge present');
     }

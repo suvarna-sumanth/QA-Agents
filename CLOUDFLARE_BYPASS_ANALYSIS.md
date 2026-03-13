@@ -16,6 +16,8 @@ Publisher websites use bot protection services to prevent scraping. The two most
 
 - **Cloudflare Turnstile** — shows a "Just a moment..." interstitial with a checkbox challenge
 - **PerimeterX/HUMAN** — shows a "Press & Hold" captcha that requires sustained mouse pressure
+- **TownNews / BLOX CMS** — shows a "Please wait" interstitial, often backed by reCAPTCHA Enterprise
+- **reCAPTCHA v2 / hCaptcha** — shows "Click the images" puzzles (traffic lights, buses, etc.)
 
 Standard Playwright/Puppeteer automation gets blocked immediately because these tools leave detectable fingerprints.
 
@@ -281,6 +283,36 @@ const backoffWait = 5000 + (attempt * 2500);
 
 ---
 
+## TownNews / BLOX CMS Bypass (Detailed)
+
+**File:** `agents/shivani/src/bypass.js`
+
+TownNews (BLOX CMS) uses a simplified "Please wait" challenge that redirects once a background reCAPTCHA Enterprise score is satisfied.
+
+**Step 1: Robust Multi-Layered Detection**
+Unlike Cloudflare, TownNews doesn't always show a 403 status. We detect it via:
+1. **HTTP Headers**: Looking for `townnews` in response headers.
+2. **Link Headers**: Searching for `tncms` or `bloximages` patterns.
+3. **Body Inspection**: Lightweight `GET` request to check for "blox cms" markers if headers are inconclusive.
+
+**Step 2: Passive Scoring & Recovery**
+1. **Behavioral Jitter**: Simulate occasional mouse movements to keep the session active and improve background human-scores.
+2. **Failure Recovery**: If a "Bot detected" or "Challenge failed" state is identified in the DOM, the agent triggers an automatic page refresh (with exponential backoff) to clear the block.
+
+---
+
+## Image Puzzle Bypass: reCAPTCHA v2 (Audio Strategy)
+
+**File:** `agents/shivani/src/bypass.js`
+
+When sites present "Click the images" puzzles (reCAPTCHA v2), we use an **Audio Accessibility** bypass combined with AI transcription.
+
+1. **Switch to Audio**: Instead of identifying images, we click the headphone icon to request the audio challenge.
+2. **Whisper AI Solving**: The agent downloads the `.mp3` challenge and sends it to **OpenAI Whisper** for transcription.
+3. **Automatic Submission**: The transcribed text is filled into the response field and submitted, resulting in a verified checkbox.
+
+**Advantage**: This is 100% automated and avoids the high failure rate of computer-vision based image clicking.
+
 ## Protection Detection
 
 Before launching any browser, the system detects which protection a domain uses via a lightweight HTTP HEAD request:
@@ -301,11 +333,14 @@ export async function detectProtection(url) {
   const hasPerimeterX = allHeaders.some(h => h.includes('px-')) ||
                         resp.status === 403;
 
-  if (hasCloudflare) return 'cloudflare';
-  if (hasPerimeterX) return 'perimeterx';
-  return 'unknown';
+    if (hasCloudflare) return 'cloudflare';
+    if (hasPerimeterX) return 'perimeterx';
+    if (hasTownNews) return 'townnews';
+    return 'unknown';
 }
 ```
+
+**Note on Redirects**: The detection system follows redirects (`redirect: follow`) to ensure we are analyzing the final wall (e.g., a site that redirects from `site.com` to `challenge.site.com`).
 
 Results are cached per domain to avoid repeated detection requests.
 

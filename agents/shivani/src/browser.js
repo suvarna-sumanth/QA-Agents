@@ -51,25 +51,75 @@ export async function detectProtection(url) {
     const domain = new URL(url).hostname;
     if (domainProtectionCache.has(domain)) return domainProtectionCache.get(domain);
 
-    const resp = await fetch(url, {
+    // Phase 1: Try HEAD with redirect following to see final headers
+    let resp = await fetch(url, {
       method: 'HEAD',
-      redirect: 'manual',
+      redirect: 'follow',
       headers: { 'User-Agent': INSTAREAD_USER_AGENT },
-    });
+    }).catch(() => null);
+
+    // If HEAD fails (some sites block it), try a GET with range backoff
+    if (!resp || !resp.ok) {
+      resp = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: { 
+          'User-Agent': INSTAREAD_USER_AGENT,
+          'Range': 'bytes=0-1024' // Small fetch for headers/intro
+        },
+      }).catch(() => null);
+    }
+
+    if (!resp) return 'unknown';
 
     const server = resp.headers.get('server')?.toLowerCase() || '';
     const allHeaders = [...resp.headers.entries()].map(([k]) => k.toLowerCase());
-    const hasCloudflare = server.includes('cloudflare') || allHeaders.some(h => h.startsWith('cf-'));
-    const hasPerimeterX = allHeaders.some(h => h.includes('px-')) || resp.status === 403;
+    const links = resp.headers.get('link')?.toLowerCase() || '';
+    
+    let hasCloudflare = server.includes('cloudflare') || allHeaders.some(h => h.startsWith('cf-'));
+    let hasPerimeterX = allHeaders.some(h => h.includes('px-')) || resp.status === 403;
+    
+    // TownNews/BLOX CMS detection via headers/links
+    let hasTownNews = allHeaders.some(h => h.includes('townnews')) || 
+                      links.includes('townnews') ||
+                      links.includes('tncms') ||
+                      links.includes('bloximages');
+
+    // Phase 2: If headers are inconclusive, do a lightweight GET to check for TownNews signals in body
+    if (!hasCloudflare && !hasPerimeterX && !hasTownNews) {
+      try {
+        const bodyResp = await fetch(url, { 
+          method: 'GET', 
+          headers: { 'User-Agent': INSTAREAD_USER_AGENT },
+          redirect: 'follow'
+        });
+        const text = await bodyResp.text();
+        const lowText = text.toLowerCase();
+        if (
+          lowText.includes('townnews') || 
+          lowText.includes('tncms') || 
+          lowText.includes('blox cms') ||
+          lowText.includes('client_captcha') ||
+          lowText.includes('challenges.cloudflare.com')
+        ) {
+          if (lowText.includes('townnews') || lowText.includes('tncms')) hasTownNews = true;
+          if (lowText.includes('challenges.cloudflare.com')) hasCloudflare = true;
+        }
+      } catch (e) {
+        // Ignore fetch errors in detection
+      }
+    }
 
     let protection = 'unknown';
     if (hasCloudflare) protection = 'cloudflare';
     else if (hasPerimeterX) protection = 'perimeterx';
+    else if (hasTownNews) protection = 'townnews';
 
     domainProtectionCache.set(domain, protection);
-    console.log(`[Browser] ${domain} protection: ${protection}`);
+    console.log(`[Browser] ${domain} protection: ${protection} (Final URL: ${resp.url})`);
     return protection;
-  } catch {
+  } catch (err) {
+    console.warn(`[Browser] Detection error for ${url}:`, err.message);
     return 'unknown';
   }
 }
@@ -87,8 +137,9 @@ export async function detectProtection(url) {
 export async function launchForUrl(url) {
   const protection = await detectProtection(url);
   
-  if (protection === 'cloudflare') {
-    // CLOUDFLARE: Use simple playwright.launch() - bypass CDP patching entirely
+  if (protection === 'cloudflare' || protection === 'townnews') {
+    // CLOUDFLARE & TOWNNEWS: Use simple playwright.launch() - avoids CDP patching issues
+    // These sites often expect a real Chrome and might detect/be suspicious of rebrowser
     return launchCloudflareSimple();
   } else {
     // PERIMETERX: Use rebrowser with CDP leak patching
@@ -102,44 +153,13 @@ export async function launchForUrl(url) {
  */
 async function launchCloudflareSimple() {
   try {
-    let browser;
-    try {
-      // Try headed mode first — Cloudflare Turnstile works much better with a visible browser
-      browser = await regularChromium.launch({
-        headless: false,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--disable-dev-shm-usage',
-          '--no-sandbox',
-        ],
-      });
-      console.log('[Browser] Launched Cloudflare browser in headed mode');
-    } catch (err) {
-      // Fallback to headless if display is unavailable (e.g. CI/server)
-      console.log('[Browser] Headed mode unavailable, falling back to headless:', err.message);
-      browser = await regularChromium.launch({
-        headless: true,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--disable-dev-shm-usage',
-          '--no-sandbox',
-        ],
-      });
-      console.log('[Browser] Launched Cloudflare browser in headless fallback mode');
-    }
-
-    return {
-      browser,
-      cleanup: async () => {
-        try {
-          await browser.close();
-          console.log('[Browser] Closed simple Cloudflare browser');
-        } catch (err) {
-          console.error('[Browser] Error closing browser:', err.message);
-        }
-      },
-      reused: false,
-    };
+    // We use launchUndetectedBrowser but with useRebrowser: false
+    // This connects via regular Playwright but to a real Chrome process with a persistent profile
+    return await launchUndetectedBrowser({ 
+      useRebrowser: false, 
+      reusable: true,
+      poolKey: 'cloudflare' 
+    });
   } catch (err) {
     console.error('[Browser] Failed to launch simple Cloudflare browser:', err.message);
     throw err;
@@ -271,96 +291,7 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
 
       const context = browser.contexts()[0];
       if (context) {
-        await context.addInitScript(() => {
-          // --- Chrome runtime object (missing = automation detected) ---
-          if (!window.chrome) {
-            window.chrome = {
-              runtime: {
-                connect: function() {},
-                sendMessage: function() {},
-                onMessage: { addListener: function() {}, removeListener: function() {} },
-                id: undefined,
-              }
-            };
-          }
-
-          // --- Permissions query (Notification permission reveals automation) ---
-          const originalQuery = window.Permissions?.prototype?.query;
-          if (originalQuery) {
-            window.Permissions.prototype.query = function(params) {
-              if (params?.name === 'notifications') {
-                return Promise.resolve({ state: Notification.permission });
-              }
-              return originalQuery.call(this, params);
-            };
-          }
-
-          // --- Platform consistency ---
-          Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
-          Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-          Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-          Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
-          
-          // --- Spoof plugins to look real ---
-          Object.defineProperty(navigator, 'plugins', {
-            get: () => [
-              { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-              { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-            ]
-          });
-
-          // --- Prevent iframe contentWindow detection of automation ---
-          const originalAttachShadow = Element.prototype.attachShadow;
-          Element.prototype.attachShadow = function() {
-            return originalAttachShadow.call(this, ...arguments);
-          };
-
-          // --- WebGL renderer (headless reveals "SwiftShader") ---
-          const getParameter = WebGLRenderingContext.prototype.getParameter;
-          WebGLRenderingContext.prototype.getParameter = function(param) {
-            if (param === 37445) return 'Google Inc. (Intel)';  // UNMASKED_VENDOR
-            if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';  // UNMASKED_RENDERER
-            return getParameter.call(this, param);
-          };
-          const getParameter2 = WebGL2RenderingContext?.prototype?.getParameter;
-          if (getParameter2) {
-            WebGL2RenderingContext.prototype.getParameter = function(param) {
-              if (param === 37445) return 'Google Inc. (Intel)';
-              if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';
-              return getParameter2.call(this, param);
-            };
-          }
-
-          // --- Prevent stack trace CDP detection ---
-          const origStackGetter = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
-          if (origStackGetter?.get) {
-            Object.defineProperty(Error.prototype, 'stack', {
-              get: function() {
-                const stack = origStackGetter.get.call(this);
-                if (typeof stack === 'string') {
-                  return stack.replace(/cdp|devtools|playwright|puppeteer/gi, 'native');
-                }
-                return stack;
-              },
-            });
-          }
-
-          // --- Spoof webdriver detection ---
-          Object.defineProperty(navigator, 'webdriver', { get: () => false });
-          
-          // --- Spoof languages ---
-          Object.defineProperty(navigator, 'languages', {
-            get: () => ['en-US', 'en']
-          });
-          
-          // --- Fix screen properties ---
-          Object.defineProperty(screen, 'availHeight', { get: () => 760 });
-          Object.defineProperty(screen, 'availWidth', { get: () => 1280 });
-          Object.defineProperty(screen, 'height', { get: () => 800 });
-          Object.defineProperty(screen, 'width', { get: () => 1280 });
-          Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
-          Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
-        });
+        await applyStealthScripts(context);
       }
 
       // Store in pool if reusable — including chromeProcess and userDataDir for cleanup
@@ -380,7 +311,7 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
       };
 
       return { browser, cleanup, reused: false };
-    } catch {
+    } catch (err) {
       await new Promise(r => setTimeout(r, 500));
     }
   }
@@ -421,6 +352,103 @@ export async function cleanupBrowserPool() {
   browserPool.perimeterx = null;
   browserPool.cloudflare = null;
   console.log('[Browser] Browser pool cleanup complete');
+}
+
+/**
+ * Apply full suite of stealth scripts to a browser context.
+ * This is CRITICAL for bypassing advanced bot protection like Cloudflare and TownNews.
+ */
+export async function applyStealthScripts(context) {
+  await context.addInitScript(() => {
+    // --- Chrome runtime object (missing = automation detected) ---
+    if (!window.chrome) {
+      window.chrome = {
+        runtime: {
+          connect: function() {},
+          sendMessage: function() {},
+          onMessage: { addListener: function() {}, removeListener: function() {} },
+          id: undefined,
+        }
+      };
+    }
+
+    // --- Permissions query (Notification permission reveals automation) ---
+    const originalQuery = window.Permissions?.prototype?.query;
+    if (originalQuery) {
+      window.Permissions.prototype.query = function(params) {
+        if (params?.name === 'notifications') {
+          return Promise.resolve({ state: Notification.permission });
+        }
+        return originalQuery.call(this, params);
+      };
+    }
+
+    // --- Platform consistency ---
+    Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+    
+    // --- Spoof plugins to look real ---
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+      ]
+    });
+
+    // --- Prevent iframe contentWindow detection of automation ---
+    const originalAttachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function() {
+      return originalAttachShadow.call(this, ...arguments);
+    };
+
+    // --- WebGL renderer (headless reveals "SwiftShader") ---
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(param) {
+      if (param === 37445) return 'Google Inc. (Intel)';  // UNMASKED_VENDOR
+      if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';  // UNMASKED_RENDERER
+      return getParameter.call(this, param);
+    };
+    const getParameter2 = WebGL2RenderingContext?.prototype?.getParameter;
+    if (getParameter2) {
+      WebGL2RenderingContext.prototype.getParameter = function(param) {
+        if (param === 37445) return 'Google Inc. (Intel)';
+        if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';
+        return getParameter2.call(this, param);
+      };
+    }
+
+    // --- Prevent stack trace CDP detection ---
+    const origStackGetter = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
+    if (origStackGetter?.get) {
+      Object.defineProperty(Error.prototype, 'stack', {
+        get: function() {
+          const stack = origStackGetter.get.call(this);
+          if (typeof stack === 'string') {
+            return stack.replace(/cdp|devtools|playwright|puppeteer/gi, 'native');
+          }
+          return stack;
+        },
+      });
+    }
+
+    // --- Spoof webdriver detection ---
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    
+    // --- Spoof languages ---
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['en-US', 'en']
+    });
+    
+    // --- Fix screen properties ---
+    Object.defineProperty(screen, 'availHeight', { get: () => 760 });
+    Object.defineProperty(screen, 'availWidth', { get: () => 1280 });
+    Object.defineProperty(screen, 'height', { get: () => 800 });
+    Object.defineProperty(screen, 'width', { get: () => 1280 });
+    Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
+    Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
+  });
 }
 
 /**

@@ -5,9 +5,10 @@
  * The player is rendered client-side by JavaScript, so HTTP-only scanning
  * cannot detect it. All detection is done via undetected Chrome browser.
  */
-import { launchUndetectedBrowser, launchForUrl, detectProtection } from './browser.js';
+import { launchUndetectedBrowser, launchForUrl, detectProtection, applyStealthScripts } from './browser.js';
 import { dismissPopups, bypassChallenge } from './bypass.js';
 import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
+import { INSTAREAD_USER_AGENT } from './config.js';
 
 /**
  * @typedef {Object} DetectionResult
@@ -32,16 +33,15 @@ export async function detectPlayer(urls, sharedBrowser = null) {
   // Detect protection type from the first URL to choose the right browser
   const protection = urls.length > 0 ? await detectProtection(urls[0]) : 'unknown';
   const isCloudflare = protection === 'cloudflare';
+  const isTownNews = protection === 'townnews';
 
   // Use shared browser if provided, otherwise launch the right one for this protection type
   let browser, cleanup;
   if (sharedBrowser) {
     browser = sharedBrowser.browser;
     cleanup = async () => {}; // Don't close shared browser
-  } else if (isCloudflare) {
-    ({ browser, cleanup } = await launchForUrl(urls[0]));
   } else {
-    ({ browser, cleanup } = await launchUndetectedBrowser());
+    ({ browser, cleanup } = await launchForUrl(urls[0]));
   }
 
   // Save original console.log before any override (accessible in finally block)
@@ -57,12 +57,12 @@ export async function detectPlayer(urls, sharedBrowser = null) {
     };
 
     let context, page;
-    if (isCloudflare) {
-      // CLOUDFLARE: Fresh context with stealth applied BEFORE navigation
-      context = await browser.newContext();
-      await context.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    if (isCloudflare || isTownNews) {
+      // CLOUDFLARE & TOWNNEWS: Fresh context with stealth applied BEFORE navigation
+      context = await browser.newContext({
+        userAgent: INSTAREAD_USER_AGENT
       });
+      await applyStealthScripts(context);
     } else {
       // PERIMETERX: Use default context with full stealth scripts
       context = browser.contexts()[0];
@@ -88,10 +88,13 @@ export async function detectPlayer(urls, sharedBrowser = null) {
         let hasInitialChallenge = false;
         try {
           initialTitle = await page.title();
+          const currentUrl = page.url();
           bodyText = await page.evaluate(() => (document.body?.innerText?.toLowerCase() || ''));
           hasInitialChallenge = initialTitle.toLowerCase().includes('just a moment') ||
                                 bodyText.includes('press & hold') ||
-                                bodyText.includes('before we continue');
+                                bodyText.includes('before we continue') ||
+                                bodyText.includes('please wait while we attempt to load the requested page') ||
+                                currentUrl.includes('client_captcha');
         } catch (ctxErr) {
           if (ctxErr.message.includes('Execution context was destroyed') || ctxErr.message.includes('navigation')) {
             console.log(`[Detect] Page navigating (challenge auto-resolving), waiting...`);
@@ -112,8 +115,8 @@ export async function detectPlayer(urls, sharedBrowser = null) {
         if (hasInitialChallenge) {
           console.log(`[Detect] Challenge detected! Attempting bypass...`);
           try {
-            if (isCloudflare) {
-              // Use the proven Cloudflare bypass
+            if (isCloudflare && initialTitle.toLowerCase().includes('just a moment')) {
+              // Use the proven Cloudflare bypass module for standard Turnstile
               const solved = await bypassCloudflareIfNeeded(page, 90000);
               if (solved) {
                 console.log(`[Detect] ✓ Cloudflare challenge bypassed!`);
@@ -123,13 +126,13 @@ export async function detectPlayer(urls, sharedBrowser = null) {
                 await page.waitForTimeout(3000);
               }
             } else {
-              // Use PerimeterX bypass
+              // Use general bypass handler (PerimeterX, TownNews, etc.)
               const challenged = await bypassChallenge(page, 4).catch(err => {
                 console.log(`[Detect] Bypass error (continuing anyway): ${err.message}`);
                 return false;
               });
               if (challenged) {
-                console.log(`[Detect] ✓ Challenge bypassed! Waiting for content to load...`);
+                console.log(`[Detect] ✓ Challenge handled! Waiting for content to load...`);
                 await page.waitForTimeout(5000);
               } else {
                 console.log(`[Detect] ⚠️  Bypass completed (may have partially resolved), waiting for content...`);
