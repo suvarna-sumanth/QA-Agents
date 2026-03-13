@@ -41,6 +41,18 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
     console.log('[CF-Bypass] Waiting for challenge iframe to appear...');
     await page.waitForTimeout(2000);
 
+    // Step 1c: Wait specifically for the Turnstile iframe to be injected by JavaScript
+    console.log('[CF-Bypass] Waiting for Turnstile iframe to be created by JavaScript...');
+    try {
+      await page.waitForSelector('iframe[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]', {
+        timeout: 10000
+      });
+      console.log('[CF-Bypass] ✓ Turnstile iframe detected in DOM');
+    } catch (err) {
+      console.log('[CF-Bypass] ⚠️ Turnstile iframe did not appear within 10 seconds');
+      // Continue anyway, it might appear later
+    }
+
     // Debug: Log page structure to understand what we're dealing with
     const debugInfo = await page.evaluate(() => {
       return {
@@ -52,7 +64,9 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
           id: f.id,
           className: f.className,
           visible: f.offsetHeight > 0
-        }))
+        })),
+        turnstileInput: !!document.querySelector('input[name="cf-turnstile"]'),
+        hasCloudflareScript: Array.from(document.querySelectorAll('script')).some(s => s.src?.includes('challenges.cloudflare'))
       };
     }).catch(() => ({}));
     
