@@ -3,7 +3,9 @@
  * Retrieve job status and report
  */
 
-import { jobRegistry } from '../route';
+import { jobRegistry } from '@/lib/jobRegistry';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,

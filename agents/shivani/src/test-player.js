@@ -11,7 +11,7 @@ import { dismissPopups, bypassChallenge } from './bypass.js';
 import { bypassCloudflareIfNeeded } from './cloudflare-browser-bypass.js';
 import { INSTAREAD_USER_AGENT } from './config.js';
 
-const SCREENSHOTS_DIR = path.resolve(import.meta.dirname, '..', 'screenshots');
+const SCREENSHOTS_DIR = path.resolve(process.cwd(), 'agents/shivani/screenshots');
 
 /**
  * Helper function to take full page screenshots

@@ -254,7 +254,7 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
 
   const port = await findFreePort();
   const profileId = Math.random().toString(36).substring(2, 10);
-  const userDataDir = path.resolve(import.meta.dirname, '..', `.chrome-profile-${profileId}`);
+  const userDataDir = path.resolve(process.cwd(), 'agents/shivani', `.chrome-profile-${profileId}`);
 
   const chromeProcess = spawn('google-chrome', [
     `--remote-debugging-port=${port}`,

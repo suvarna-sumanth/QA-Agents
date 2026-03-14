@@ -3,8 +3,10 @@
  * Returns a specific report in normalized format with full details
  */
 
-import { jobRegistry } from '../../jobs/route';
+import { jobRegistry } from '@/lib/jobRegistry';
 import { adaptJobToNormalizedReport } from '@/lib/reportAdapter';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
@@ -16,30 +18,40 @@ export async function GET(
     const job = jobRegistry.get(jobId);
  
     if (!job || !job.report) {
-      // Try to fetch from storage
+      const { normalizeReport } = await import('@/lib/reportNormalizer');
+
+      // 1. Try Supabase (Primary Persistence)
+      try {
+        const { supabase } = await import('../../../../../agents/core/memory/supabase-client.js');
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('test_history')
+            .select('*')
+            .eq('job_id', jobId)
+            .single();
+          
+          if (!error && data) {
+            return Response.json({ success: true, report: normalizeReport(data) }, { status: 200 });
+          }
+        }
+      } catch (err) {}
+
+      // 2. Try Storage (Secondary)
       try {
         const { getStorage } = await import('@/lib/storage');
         const storage = getStorage();
-        
-        // Use the agentId from the job if available
         const agentId = job?.agentId || 'agent-shivani';
         const storedReport = await storage.getReport(agentId, jobId);
-        
         if (storedReport) {
-          const { normalizeReport } = await import('@/lib/reportNormalizer');
-          const report = normalizeReport(storedReport);
-          return Response.json({ success: true, report }, { status: 200 });
+          return Response.json({ success: true, report: normalizeReport(storedReport) }, { status: 200 });
         }
-      } catch (err) {
-        // Log the error for debugging
-        console.warn(`[API] Storage fetch failed for ${jobId} with agentId "${job?.agentId || 'agent-shivani'}":`, err);
-      }
+      } catch (err) {}
 
       if (!job) {
         return Response.json(
           {
             success: false,
-            error: `Job "${jobId}" not found in memory or storage`,
+            error: `Mission ${jobId} not found in nodes or storage.`,
           },
           { status: 404 }
         );

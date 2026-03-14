@@ -9,7 +9,7 @@ import { tmpdir } from 'os';
 import dotenv from 'dotenv';
 
 // Load environment variables for OpenAI
-const envPath = path.resolve(import.meta.dirname, '../../../.env');
+const envPath = path.resolve(process.cwd(), '.env');
 dotenv.config({ path: envPath });
 
 const openai = new OpenAI({

@@ -218,8 +218,8 @@ export default function RunDetailsPage({
                         <div key={step.id} className="bg-card/50 p-6 rounded-2xl border border-rose-500/10 backdrop-blur-md flex items-start gap-4 transition hover:bg-card/80">
                            <div className="mt-1 p-1 bg-rose-500/10 rounded"><AlertCircle className="w-4 h-4 text-rose-400" /></div>
                            <div>
-                              <p className="text-[10px] font-black text-rose-400 mb-1 uppercase tracking-widest">{step.name.match(/^\[(.*?)\]/)?.[1] || 'GENERAL'}</p>
-                              <p className="text-sm font-bold text-white mb-2">{step.name.split('] ').pop()}</p>
+                               <p className="text-[10px] font-black text-rose-400 mb-1 uppercase tracking-widest">{(step.name || '').match(/^\[(.*?)\]/)?.[1] || 'GENERAL'}</p>
+                              <p className="text-sm font-bold text-white mb-2">{(step.name || '').split('] ').pop()}</p>
                               <p className="text-xs text-slate-200 leading-relaxed font-medium">{step.message}</p>
                            </div>
                         </div>
@@ -233,15 +233,16 @@ export default function RunDetailsPage({
                 )}
 
                 {report.aiSummary && (
-                  <div className="bg-card rounded-3xl p-12 border border-border overflow-hidden relative group">
-                    <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none group-hover:opacity-10 transition-opacity duration-1000">
-                      <Sparkles className="w-64 h-64 text-primary" />
-                    </div>
+                  <div className="bg-slate-900/80 rounded-3xl p-12 border border-blue-500/20 overflow-hidden relative group shadow-[0_0_50px_rgba(37,99,235,0.1)] backdrop-blur-xl">
+                    <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none group-hover:bg-blue-600/20 transition-all duration-1000"></div>
                     <div className="flex items-center gap-3 mb-10">
-                      <div className="p-3 bg-primary/10 rounded-xl border border-primary/20"><Sparkles className="w-6 h-6 text-primary" /></div>
-                      <h2 className="text-xl font-black text-white uppercase tracking-tight">AI Mission Debrief</h2>
+                      <div className="p-3 bg-blue-500 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.4)]"><Sparkles className="w-6 h-6 text-white" /></div>
+                      <div>
+                        <h2 className="text-xl font-black text-white uppercase tracking-tight">AI Mission Debrief</h2>
+                        <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Autonomous Intelligence Synthesis</p>
+                      </div>
                     </div>
-                    <div className="relative z-10 prose prose-invert max-w-none prose-p:text-slate-400 prose-strong:text-white prose-h3:text-white">
+                    <div className="relative z-10 prose prose-invert max-w-none">
                       <MarkdownText text={report.aiSummary} />
                     </div>
                   </div>
@@ -312,49 +313,43 @@ export default function RunDetailsPage({
                     </div>
 
                      {/* Swarm Network Topology Visualization */}
-                     <div className="mt-10 mb-10 p-8 bg-slate-800/20 rounded-3xl border border-white/5 relative overflow-hidden h-[300px] flex items-center justify-center">
-                        <div className="absolute inset-0 opacity-10">
-                           <svg width="100%" height="100%" viewBox="0 0 800 400" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M400 200L200 100M400 200L600 100M400 200L400 350" stroke="white" strokeWidth="2" strokeDasharray="4 4" className="animate-[pulse_3s_infinite]" />
-                              <circle cx="400" cy="200" r="150" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                     <div className="mt-10 mb-10 p-8 bg-slate-950 rounded-[3rem] border border-blue-500/10 relative overflow-hidden h-[450px] flex items-center justify-center shadow-inner">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(37,99,235,0.05)_0%,_transparent_70%)]"></div>
+                        <div className="absolute inset-0 opacity-20">
+                           <svg width="100%" height="100%" viewBox="0 0 800 400" className="filter blur-[1px]">
+                              <path d="M400 200 L200 120 M400 200 L200 280 M400 200 L600 120 M400 200 L600 280" stroke="rgba(37,99,235,0.5)" strokeWidth="1" strokeDasharray="10 10" className="animate-[pulse_4s_infinite]" />
+                              <circle cx="400" cy="200" r="180" stroke="rgba(37,99,235,0.1)" strokeWidth="1" fill="none" />
+                              <circle cx="400" cy="200" r="100" stroke="rgba(37,99,235,0.05)" strokeWidth="1" fill="none" />
                            </svg>
                         </div>
                         
-                        <div className="relative w-full max-w-2xl flex flex-col md:flex-row items-center justify-between gap-12 z-20">
+                        <div className="relative w-full max-w-2xl h-full z-20">
                            {/* Orchestrator Center */}
                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                              <div className="w-20 h-20 bg-blue-500/20 rounded-full border-2 border-blue-500 flex items-center justify-center animate-pulse shadow-[0_0_30px_rgba(59,130,246,0.5)]">
-                                 <Cpu className="w-8 h-8 text-blue-400" />
+                              <div className="relative group">
+                                <div className="absolute inset-0 bg-blue-500 rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-opacity animate-pulse"></div>
+                                <div className="w-24 h-24 bg-slate-900 rounded-full border-2 border-blue-500 flex items-center justify-center relative z-10 shadow-2xl">
+                                   <Cpu className="w-10 h-10 text-blue-400" />
+                                </div>
+                                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-max">
+                                   <p className="text-[10px] font-black text-white uppercase tracking-widest text-center">CORE SYSTEM</p>
+                                   <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest text-center">v2.1 Master</p>
+                                </div>
                               </div>
-                              <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest text-center mt-3">Orchestrator</p>
                            </div>
 
                            {/* Specialists Satellites */}
-                           <div className="flex flex-col gap-20 -translate-x-32">
-                              <div className="flex flex-col items-center">
-                                 <div className="w-14 h-14 bg-indigo-500/10 rounded-xl border border-indigo-500/30 flex items-center justify-center hover:bg-indigo-500/20 transition-colors">
-                                    <Search className="w-5 h-5 text-indigo-400" />
-                                 </div>
-                                 <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-2">Discovery</p>
-                              </div>
+                           <div className="absolute left-40 top-1/4 -translate-x-1/2">
+                              <SpecialistNode icon={<Search />} name="Discovery" status="LINKED" color="blue" />
                            </div>
-
-                           <div className="flex flex-col gap-20 translate-x-32">
-                              <div className="flex flex-col items-center">
-                                 <div className="w-14 h-14 bg-violet-500/10 rounded-xl border border-violet-500/30 flex items-center justify-center hover:bg-violet-500/20 transition-colors">
-                                    <Eye className="w-5 h-5 text-violet-400" />
-                                 </div>
-                                 <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-2">Detection</p>
-                              </div>
+                           <div className="absolute left-40 bottom-1/4 -translate-x-1/2">
+                               <SpecialistNode icon={<Settings />} name="Functional" status="LINKED" color="emerald" />
                            </div>
-
-                           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 translate-y-24">
-                              <div className="flex flex-col items-center">
-                                 <div className="w-14 h-14 bg-emerald-500/10 rounded-xl border border-emerald-500/30 flex items-center justify-center hover:bg-emerald-500/20 transition-colors">
-                                    <Settings className="w-5 h-5 text-emerald-400" />
-                                 </div>
-                                 <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-2">Functional</p>
-                              </div>
+                           <div className="absolute right-40 top-1/4 translate-x-1/2">
+                               <SpecialistNode icon={<Eye />} name="Detection" status="LINKED" color="violet" />
+                           </div>
+                           <div className="absolute right-40 bottom-1/4 translate-x-1/2">
+                               <SpecialistNode icon={<Activity />} name="Telemetry" status="NOMINAL" color="indigo" />
                            </div>
                         </div>
                      </div>
@@ -391,12 +386,12 @@ export default function RunDetailsPage({
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {Array.from(new Set(report.steps.map(s => {
-                      const match = s.name.match(/^\[(.*?)\]/);
+                      const match = (s.name || '').match(/^\[(.*?)\]/);
                       return match ? match[1] : 'General';
                     }))).map((articleSlug) => {
-                      const articleSteps = report.steps.filter(s => s.name.startsWith(`[${articleSlug}]`));
+                      const articleSteps = report.steps.filter(s => (s.name || '').startsWith(`[${articleSlug}]`));
                       const isPassing = articleSteps.every(s => s.status !== 'fail');
-                      const hasPlayer = articleSteps.some(s => !s.message.includes('No instaread-player detected'));
+                      const hasPlayer = articleSteps.some(s => !(s.message || '').includes('No instaread-player detected'));
                       
                       return (
                         <div key={articleSlug} className={`p-8 rounded-3xl border transition-all hover:shadow-xl hover:-translate-y-1 ${isPassing ? 'bg-slate-900/40 border-slate-800' : 'bg-rose-500/5 border-rose-500/20'}`}>
@@ -430,7 +425,7 @@ export default function RunDetailsPage({
                   </div>
                 </div>
 
-                {/* Visual Evidence Gallery */}
+                {/* Screenshots grouped by article/URL */}
                 <div className="bg-card rounded-3xl p-12 border border-border">
                    <div className="flex items-center justify-between mb-12">
                     <div className="flex items-center gap-3">
@@ -440,40 +435,53 @@ export default function RunDetailsPage({
                     <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest bg-blue-400/10 px-4 py-2 rounded-full border border-blue-400/20">{report.steps.filter(s => s.screenshotUrl).length} Captured Frames</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    {report.steps
-                      .filter((step, index, self) => step.screenshotUrl && self.findIndex(t => t.screenshotUrl === step.screenshotUrl) === index)
-                      .map((step) => (
-                      <div key={step.id} className="group overflow-hidden rounded-3xl border border-border bg-slate-900/60 transition-all hover:shadow-2xl hover:shadow-primary/10 hover:border-primary/30">
-                        <div className="px-6 py-4 bg-slate-900/80 border-b border-border flex items-center justify-between">
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-primary uppercase tracking-widest leading-none mb-1">{step.name.match(/^\[(.*?)\]/)?.[1] || 'GENERAL'}</span>
-                            <span className="text-sm font-bold text-white truncate max-w-[250px]">{step.name.split('] ').pop()}</span>
+                  {(() => {
+                    const stepsWithScreenshots = report.steps.filter(s => s.screenshotUrl);
+                    const bySlug = stepsWithScreenshots.reduce<Record<string, typeof report.steps>>((acc, step) => {
+                      const slug = (step.name || '').match(/^\[(.*?)\]/)?.[1] || 'General';
+                      if (!acc[slug]) acc[slug] = [];
+                      acc[slug].push(step);
+                      return acc;
+                    }, {});
+                    let slugs = Object.keys(bySlug).filter(s => s !== 'General');
+                    if (slugs.length === 0 && bySlug['General']) slugs = ['General'];
+                    if (slugs.length === 0 && stepsWithScreenshots.length > 0) slugs = ['Article 1'];
+                    return (
+                      <div className="space-y-14">
+                        {slugs.map((slug, idx) => {
+                          const articleSteps = bySlug[slug] || [];
+                          const deduped = articleSteps.filter((step, i, arr) => arr.findIndex(s => s.screenshotUrl === step.screenshotUrl) === i);
+                          return (
+                            <div key={slug} className="rounded-3xl border border-border bg-slate-900/40 overflow-hidden">
+                              <div className="px-6 py-4 bg-slate-900/80 border-b border-border flex items-center justify-between">
+                                <h3 className="text-sm font-black text-white uppercase tracking-tight">Article {idx + 1}: {slug}</h3>
+                                <span className="text-[10px] font-bold text-slate-400">{deduped.length} screenshots</span>
+                              </div>
+                              <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {deduped.map((step) => (
+                                  <div key={step.id} className="group overflow-hidden rounded-2xl border border-border bg-slate-900/60 hover:border-primary/30 transition-all">
+                                    <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                                      <span className="text-xs font-bold text-white truncate">{(step.name || '').split('] ').pop()}</span>
+                                      <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${step.status === 'pass' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>{step.status}</span>
+                                    </div>
+                                    <div className="aspect-video bg-black flex items-center justify-center">
+                                      <img src={step.screenshotUrl} alt={step.name} className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {report.steps.filter(s => s.screenshotUrl).length === 0 && (
+                          <div className="py-32 text-center border-2 border-dashed border-border rounded-3xl bg-slate-900/20">
+                            <Search className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No visual telemetry recorded</p>
                           </div>
-                          <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${step.status === 'pass' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/20 text-rose-400 border border-rose-500/20'}`}>
-                            {step.status}
-                          </div>
-                        </div>
-                        <div className="aspect-video bg-black flex items-center justify-center relative overflow-hidden">
-                          <img 
-                            src={step.screenshotUrl} 
-                            alt={step.name}
-                            className="max-w-full max-h-full object-contain transition-transform duration-1000 group-hover:scale-105" 
-                          />
-                          <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                             <button className="bg-white text-black px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl transform translate-y-8 group-hover:translate-y-0 transition-all duration-500">Analyze High-Res</button>
-                          </div>
-                        </div>
+                        )}
                       </div>
-                    ))}
-                    
-                    {report.steps.filter(s => s.screenshotUrl).length === 0 && (
-                      <div className="col-span-2 py-32 text-center border-2 border-dashed border-border rounded-3xl bg-slate-900/20">
-                         <Search className="w-12 h-12 text-slate-700 mx-auto mb-4" />
-                        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No visual telemetry recorded</p>
-                      </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (
@@ -553,6 +561,29 @@ export default function RunDetailsPage({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+function SpecialistNode({ icon, name, status, color }: { icon: React.ReactNode, name: string, status: string, color: string }) {
+  const colorMap: Record<string, string> = {
+    blue: 'border-blue-500/30 text-blue-400 bg-blue-500/10',
+    emerald: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10',
+    violet: 'border-violet-500/30 text-violet-400 bg-violet-500/10',
+    indigo: 'border-indigo-500/30 text-indigo-400 bg-indigo-500/10',
+  };
+
+  return (
+    <div className="flex flex-col items-center group/node">
+       <div className={`w-16 h-16 rounded-2xl border flex items-center justify-center transition-all duration-500 group-hover/node:scale-110 group-hover/node:shadow-[0_0_20px_rgba(37,99,235,0.2)] ${colorMap[color]}`}>
+          {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
+       </div>
+       <div className="mt-4 text-center">
+          <p className="text-[10px] font-black text-white uppercase tracking-widest mb-1">{name}</p>
+          <div className="flex items-center justify-center gap-1.5">
+             <div className="w-1 h-1 rounded-full bg-blue-500 animate-pulse"></div>
+             <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{status}</p>
+          </div>
+       </div>
     </div>
   );
 }

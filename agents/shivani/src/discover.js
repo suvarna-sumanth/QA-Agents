@@ -17,9 +17,8 @@ import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import path from 'path';
 
-const rootEnv = path.resolve(import.meta.dirname, '../../../.env');
+const rootEnv = path.resolve(process.cwd(), '.env');
 dotenv.config({ path: rootEnv });
-dotenv.config({ path: path.resolve(import.meta.dirname, '../../.env') });
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'MISSING_KEY'

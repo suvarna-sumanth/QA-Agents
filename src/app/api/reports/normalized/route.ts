@@ -8,11 +8,13 @@
  * - limit=<n> - limit results (default 50)
  */
 
-import { jobRegistry } from '../../jobs/route';
+import { jobRegistry } from '@/lib/jobRegistry';
 import {
   adaptJobsToNormalizedReports,
   filterReportsByStatus,
 } from '@/lib/reportAdapter';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
@@ -23,60 +25,82 @@ export async function GET(request: Request) {
 
     const jobs = Array.from(jobRegistry.values());
  
-     // Include all jobs from memory to show real-time progress
-     const memoryJobsFiltered = agentFilter ? jobs.filter(j => j.agentId === agentFilter) : jobs;
- 
-     // For memory jobs that aren't completed yet, we create a placeholder report or use what's there
-     let reports = adaptJobsToNormalizedReports(memoryJobsFiltered.filter(j => j.status === 'completed' && j.report));
-     
-     // Add running/queued jobs as partial reports
-     const activeJobs = memoryJobsFiltered.filter(j => j.status === 'running' || j.status === 'queued');
-     const { normalizeReport } = await import('@/lib/reportNormalizer');
- 
-     for (const job of activeJobs) {
-       const mockRaw: any = {
-         jobId: job.jobId,
-         agentId: job.agentId,
-         target: job.target,
-         type: job.type,
-         timestamp: job.createdAt,
-         overallStatus: job.status === 'running' ? 'partial' : 'skip',
-         summary: { passed: 0, partial: 0, failed: 0, skipped: 0, total: 0 },
-         steps: [],
-         metadata: { swarmActive: true, statusLabel: job.status === 'running' ? 'Running' : 'Queued' }
-       };
-       reports.push(normalizeReport(mockRaw));
-     }
+    // Include all jobs from memory to show real-time progress
+    const memoryJobsFiltered = agentFilter ? jobs.filter((j: any) => j.agentId === agentFilter) : jobs;
 
-    // Fetch from S3 storage if available
+    // Normalize memory jobs
+    let reports = adaptJobsToNormalizedReports(memoryJobsFiltered.filter((j: any) => j.status === 'completed' && j.report));
+    
+    // Add running/queued jobs as partial reports
+    const activeJobs = memoryJobsFiltered.filter((j: any) => j.status === 'running' || j.status === 'queued');
+    const { normalizeReport } = await import('@/lib/reportNormalizer');
+
+    for (const job of activeJobs as any[]) {
+      const mockRaw: any = {
+        jobId: job.jobId,
+        agentId: job.agentId,
+        target: job.target,
+        type: job.type,
+        timestamp: job.createdAt,
+        overallStatus: job.status === 'running' ? 'partial' : 'skip',
+        summary: { passed: 0, partial: 0, failed: 0, skipped: 0, total: 0 },
+        steps: [],
+        metadata: { 
+          swarmActive: true, 
+          statusLabel: job.status === 'running' ? 'Running' : 'Queued',
+          currentStep: job.currentStep
+        }
+      };
+      reports.push(normalizeReport(mockRaw));
+    }
+
+    // Fetch from Supabase (Primary Persistence)
+    try {
+      const { supabase } = await import('../../../../../agents/core/memory/supabase-client.js');
+      if (supabase) {
+        let query = supabase
+          .from('test_history')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(limit);
+        
+        if (statusFilter) {
+          query = query.eq('overall_status', statusFilter);
+        }
+
+        const { data: dbRows, error } = await query;
+        
+        if (!error && dbRows) {
+          for (const row of dbRows) {
+            // Avoid duplicates with memory
+            if (reports.some(r => r.jobId === row.job_id)) continue;
+            
+            reports.push(normalizeReport(row));
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[API] Supabase fetch failed in normalized route:', err);
+    }
+
+    // Fetch from S3 storage if available as secondary fallback
     try {
       const { getStorage } = await import('@/lib/storage');
       const storage = getStorage();
-
-      // Known agents to check if no filter
       const agentsToCheck = agentFilter ? [agentFilter] : ['agent-shivani'];
-
-      const { normalizeReport } = await import('@/lib/reportNormalizer');
       
       for (const agId of agentsToCheck) {
         const storedReports = await storage.listReports(agId, limit);
         if (storedReports && storedReports.length > 0) {
           for (const r of storedReports) {
-            // Check if we already have this jobId in memory to avoid duplicates
             if (reports.some(existing => existing.jobId === r.jobId)) continue;
-            
             try {
-              const normalized = normalizeReport(r as any);
-              reports.push(normalized);
-            } catch (e) {
-              console.warn(`[API] Failed to normalize stored report ${r.jobId}:`, e);
-            }
+              reports.push(normalizeReport(r as any));
+            } catch (e) {}
           }
         }
       }
-    } catch (err) {
-      console.warn('[API] Storage listing failed or unavailable:', err);
-    }
+    } catch (err) {}
 
     // Apply status filter
     if (statusFilter) {
@@ -108,6 +132,7 @@ export async function GET(request: Request) {
           statusLabel: r.statusLabel,
           durationLabel: r.durationLabel,
           summary: r.summary,
+          metadata: r.metadata,
         })),
       },
       { 

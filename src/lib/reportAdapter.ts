@@ -99,12 +99,21 @@ export function generateDashboardSummary(
     totalRuns: reports.length,
     successRate: Math.round(successRate),
     avgRunTime,
-    recentRuns: reports.slice(0, 10).map((r) => ({
-      jobId: r.jobId,
-      target: new URL(r.target).hostname,
-      status: r.statusLabel,
-      timestamp: new Date(r.timestamp).toLocaleString(),
-    })),
+    recentRuns: reports.slice(0, 10).map((r) => {
+      let hostname = r.target || 'Unknown';
+      try {
+        if (hostname.includes('://')) {
+          hostname = new URL(hostname).hostname;
+        }
+      } catch (e) {}
+      
+      return {
+        jobId: r.jobId,
+        target: hostname,
+        status: r.statusLabel,
+        timestamp: new Date(r.timestamp).toLocaleString(),
+      };
+    }),
   };
 }
 

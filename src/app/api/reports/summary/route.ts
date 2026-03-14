@@ -3,10 +3,12 @@
  * Returns normalized reports with dashboard-friendly formatting
  */
 
-import { jobRegistry } from '../../jobs/route';
+import { jobRegistry } from '@/lib/jobRegistry';
 import {
   generateDashboardSummary,
 } from '@/lib/reportAdapter';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
@@ -15,7 +17,7 @@ export async function GET(request: Request) {
     const { normalizeReport } = await import('@/lib/reportNormalizer');
     let reports: any[] = [];
 
-    for (const job of jobs) {
+    for (const job of jobs as any[]) {
       if (job.status === 'completed' && job.report) {
          reports.push(normalizeReport(job.report));
       } else if (job.status === 'running' || job.status === 'queued') {
@@ -28,32 +30,49 @@ export async function GET(request: Request) {
            overallStatus: job.status === 'running' ? 'partial' : 'skip',
            summary: { passed: 0, partial: 0, failed: 0, skipped: 0, total: 0 },
            steps: [],
-           metadata: { statusLabel: job.status === 'running' ? 'Running' : 'Queued' }
+           metadata: { 
+             statusLabel: job.status === 'running' ? 'Running' : 'Queued',
+             currentStep: job.currentStep
+           }
          }));
       }
     }
 
-    // Fetch from S3 storage if available
+    // Fetch from Supabase (Primary Persistence)
     try {
-      const { getStorage } = await import('@/lib/storage');
-      const storage = getStorage();
-      
-      const storedReports = await storage.listReports('agent-shivani', 50);
-      
-      if (storedReports && storedReports.length > 0) {
-        for (const r of storedReports) {
-          if (reports.some(existing => existing.jobId === r.jobId)) continue;
-          try {
-            const normalized = normalizeReport(r as any);
-            reports.push(normalized);
-          } catch (e) {
-            console.warn(`[API] Failed to normalize summary report ${r.jobId}:`, e);
+      const { supabase } = await import('../../../../../agents/core/memory/supabase-client.js');
+      if (supabase) {
+        const { data: dbRows, error } = await supabase
+          .from('test_history')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        
+        if (!error && dbRows) {
+          for (const row of dbRows) {
+            if (reports.some(r => r.jobId === row.job_id)) continue;
+            reports.push(normalizeReport(row));
           }
         }
       }
     } catch (err) {
-      console.warn('[API] Storage summary listing failed:', err);
+      console.warn('[API] Supabase fetch failed in summary route:', err);
     }
+
+    // Fetch from S3 storage if available (Secondary)
+    try {
+      const { getStorage } = await import('@/lib/storage');
+      const storage = getStorage();
+      const storedReports = await storage.listReports('agent-shivani', 50);
+      if (storedReports && storedReports.length > 0) {
+        for (const r of storedReports) {
+          if (reports.some(existing => existing.jobId === r.jobId)) continue;
+          try {
+            reports.push(normalizeReport(r as any));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {}
 
     // Generate dashboard summary
     const summary = generateDashboardSummary(reports);

@@ -89,87 +89,158 @@ export interface NormalizedReport {
   aiSummary?: string;
 }
 
-export function normalizeReport(rawReport: RawReport): NormalizedReport {
-  const summary = rawReport.summary || {
-    passed: 0,
-    partial: 0,
-    failed: 0,
-    skipped: 0,
-    total: 0,
+/** Convert cognitive agent state (LangGraph results) into flat steps + metadata for dashboard */
+function cognitiveToLegacy(cognitive: any): any {
+  const results = cognitive.results || [];
+  const steps: any[] = [];
+  const uniqueArticleUrls = new Set<string>();
+
+  for (const r of results) {
+    if (r.skill === 'discover_articles' && r.data?.urls?.length) {
+      steps.push({ name: 'Discovery', status: r.status === 'error' ? 'fail' : 'pass', message: `Found ${r.data.urls.length} articles`, duration: 0 });
+      continue;
+    }
+    if (r.skill === 'detect_player' && r.data?.results) {
+      for (const item of r.data.results) {
+        const url = (item.url || '').trim();
+        if (url) uniqueArticleUrls.add(url);
+        const short = url.split('/').filter(Boolean).pop() || 'article';
+        steps.push({
+          name: `[${short}] Detection`,
+          status: item.hasPlayer ? 'pass' : 'fail',
+          message: item.hasPlayer ? 'Player detected' : 'No instaread-player detected',
+          duration: 0,
+          screenshot: item.screenshot,
+          s3Key: item.s3Key,
+        });
+      }
+      continue;
+    }
+    if (r.skill === 'test_player' && r.data?.report?.steps) {
+      const reportUrl = (r.data.report?.url || '').trim();
+      if (reportUrl) uniqueArticleUrls.add(reportUrl);
+      const short = reportUrl.split('/').filter(Boolean).pop() || 'article';
+      for (const step of r.data.report.steps) {
+        steps.push({
+          name: `[${short}] ${step.name || 'Step'}`,
+          status: step.status === 'info' ? 'pass' : (step.status || 'pass'),
+          message: step.message || '',
+          duration: step.duration || 0,
+          screenshot: step.screenshot,
+          s3Key: step.s3Key,
+        });
+      }
+    }
+  }
+
+  const target = cognitive.url || cognitive.target || cognitive.domain || 'Unknown Mission';
+  const durationMs = cognitive.totalDuration ?? (cognitive.startTime ? Date.now() - cognitive.startTime : 0);
+  const articlesWithPlayer = Math.max(uniqueArticleUrls.size, 1);
+
+  return {
+    ...cognitive,
+    target,
+    url: target,
+    steps,
+    duration: durationMs,
+    totalDuration: durationMs,
+    overallStatus: cognitive.overallStatus || (steps.some((s: any) => s.status === 'fail') ? 'fail' : 'pass'),
+    metadata: { ...(cognitive.metadata || {}), articlesWithPlayer },
+  };
+}
+
+export function normalizeReport(rawReport: any): NormalizedReport {
+  const isCognitive =
+    Array.isArray(rawReport.results) &&
+    rawReport.results.length > 0 &&
+    rawReport.results.some((r: any) => r && (r.skill === 'discover_articles' || r.skill === 'detect_player' || r.skill === 'test_player'));
+
+  const raw = isCognitive ? cognitiveToLegacy(rawReport) : rawReport;
+  const rawSteps = raw.steps || raw.results || [];
+
+  const summary = raw.summary || {
+    passed: rawSteps.filter((s: any) => s.status === 'pass').length,
+    partial: rawSteps.filter((s: any) => s.status === 'partial').length,
+    failed: rawSteps.filter((s: any) => s.status === 'fail' || s.status === 'error').length,
+    skipped: rawSteps.filter((s: any) => s.status === 'skip').length,
+    total: rawSteps.length,
   };
 
   const passRate = summary.total > 0 ? (summary.passed / summary.total) * 100 : 0;
+  const { statusLabel, statusColor } = getStatusDisplay(raw.overallStatus || (summary.failed > 0 ? 'fail' : 'pass'));
 
-  const { statusLabel, statusColor } = getStatusDisplay(rawReport.overallStatus);
-
-  const durationMs = rawReport.duration || 0;
+  const durationMs = raw.duration || raw.total_duration_ms || raw.totalDuration || 0;
   const durationSeconds = Math.round(durationMs / 1000);
   const durationLabel =
     durationSeconds < 60
       ? `${durationSeconds}s`
       : `${Math.floor(durationSeconds / 60)}m ${durationSeconds % 60}s`;
 
-  const normalizedSteps = rawReport.steps.map((step, index) =>
+  const timestamp = raw.timestamp || raw.created_at || raw.createdAt || new Date().toISOString();
+  const target = raw.target || raw.url || raw.domain || 'Mission Target';
+  const type = raw.type || (target.includes('/') ? 'url' : 'domain');
+
+  const normalizedSteps = rawSteps.map((step: any, index: number) =>
     normalizeStep(step, index)
   );
 
-  // Generate AI Executive Summary
-  const aiSummary = generateAISummary(rawReport, summary, passRate);
+  const aiSummary = generateAISummary(raw, rawSteps, summary, passRate);
 
   return {
-    // Identifiers
-    jobId: rawReport.jobId,
-    agentId: rawReport.agentId,
+    jobId: raw.jobId || raw.job_id || rawReport.jobId || rawReport.job_id || `job-${Date.now()}`,
+    agentId: raw.agentId || raw.agent_id || rawReport.agentId || rawReport.agent_id || 'agent-shivani',
 
-    // Execution info
-    type: rawReport.type,
-    target: rawReport.target,
-    timestamp: rawReport.timestamp,
-    startedAt: rawReport.timestamp,
-    completedAt: rawReport.timestamp,
+    type: type as any,
+    target,
+    timestamp,
+    startedAt: timestamp,
+    completedAt: timestamp,
 
-    // Status
-    overallStatus: rawReport.overallStatus,
-    statusLabel: rawReport.metadata?.statusLabel || statusLabel,
-    statusColor: rawReport.metadata?.statusColor || statusColor,
+    overallStatus: raw.overallStatus || (summary.failed > 0 ? 'fail' : 'pass'),
+    statusLabel: raw.metadata?.statusLabel || statusLabel,
+    statusColor: raw.metadata?.statusColor || statusColor,
 
-    // Metrics
     duration: durationMs,
     durationSeconds,
     durationLabel,
 
-    // Results summary
-    summary: {
-      ...summary,
-      passRate,
-    },
+    summary: { ...summary, passRate },
 
-    // Steps
     steps: normalizedSteps,
 
-    // Metadata & Swarm Telemetry
-    agentName: rawReport.metadata?.agentName || 'Shivani Swarm Orchestrator',
-    agentVersion: rawReport.metadata?.agentVersion || '2.0.0-swarm',
-    capabilities: rawReport.metadata?.capabilities || [],
+    agentName: raw.agentName || raw.metadata?.agentName || 'Shivani Swarm Orchestrator',
+    agentVersion: raw.agentVersion || raw.metadata?.agentVersion || '2.1.0-agentic',
+    capabilities: raw.capabilities || raw.metadata?.capabilities || ['Discovery', 'Detection', 'Functional'],
     metadata: {
-      ...rawReport.metadata,
-      swarmActive: rawReport.metadata?.swarmMode || false,
-      parallelEfficiency: rawReport.metadata?.swarmEfficiency || 0,
+      ...raw.metadata,
+      swarmActive: true,
+      parallelEfficiency: raw.metadata?.swarmEfficiency || 0,
     },
     aiSummary,
   };
 }
 
-function generateAISummary(rawReport: RawReport, summary: any, passRate: number): string {
+function generateAISummary(rawReport: any, rawSteps: any[], summary: any, passRate: number): string {
+  const target = rawReport.target || rawReport.domain || 'Unknown Mission';
+  
   if (rawReport.overallStatus === 'error') {
-    return `Critical execution error occurred during the QA run. The agent was unable to complete the analysis for ${rawReport.target}. Please check the system logs for infrastructure issues.`;
+    return `Critical execution error occurred during the QA run. The agent was unable to complete the analysis for ${target}. Please check the system logs for infrastructure issues.`;
   }
 
   const articleCount = rawReport.metadata?.articlesWithPlayer || 1;
   const status = passRate >= 100 ? 'excellent' : passRate >= 80 ? 'good' : passRate >= 50 ? 'concerning' : 'critical';
   
-  const targetUrl = rawReport.target.includes('://') ? rawReport.target : `https://${rawReport.target}`;
-  let text = `The QA analysis for **${new URL(targetUrl).hostname}** is complete. Over a span of **${Math.round(rawReport.duration! / 1000)} seconds**, the Shivani Agent evaluated **${articleCount} article(s)** across the domain.\n\n`;
+  // Safe URL logic
+  let hostname = target;
+  try {
+    const targetUrl = target.includes('://') ? target : `https://${target}`;
+    hostname = new URL(targetUrl).hostname || target;
+  } catch (e) {
+    // Keep hostname as target
+  }
+
+  const durationMs = Number(rawReport.duration) || 0;
+  let text = `The QA analysis for **${hostname}** is complete. Over a span of **${Math.round(durationMs / 1000)} seconds**, the Shivani Agent evaluated **${articleCount} article(s)** across the domain.\n\n`;
   
   if (passRate >= 100) {
     text += `### Executive Summary: HEALTHY\nAll player modules are functioning perfectly. The Instaread player was successfully detected, triggered, and verified for audio playback, seek functionality, and speed controls. AdPushup units were also correctly rendered without blocking the user experience.`;
@@ -179,10 +250,10 @@ function generateAISummary(rawReport: RawReport, summary: any, passRate: number)
     text += `### Executive Summary: CRITICAL FAILURES\nSignificant issues were detected in the player integration. Only **${Math.round(passRate)}%** of the test suite passed. Key failures in **playback or iframe access** suggest a potential break in the partner script or a change in the site's DOM structure. Immediate attention is required.`;
   }
 
-  if (summary.failed > 0) {
-    const failedStepNames = rawReport.steps
-      .filter(s => s.status === 'fail')
-      .map(s => s.name.split('] ').pop())
+  if (summary.failed > 0 && rawSteps.length > 0) {
+    const failedStepNames = rawSteps
+      .filter((s: any) => s.status === 'fail' || s.status === 'error')
+      .map((s: any) => (s.name || s.skill || 'Unknown Task').split('] ').pop())
       .slice(0, 3);
     text += `\n\n**Top Issues Identified:**\n` + failedStepNames.map(name => `- ${name}`).join('\n');
   }
@@ -208,7 +279,7 @@ function normalizeStep(step: Step, index: number): NormalizedStep {
 
   return {
     id: `step-${index}`,
-    name: step.name,
+    name: step.name || (step as any).skill || 'Mission Operation',
     status: step.status,
     message: step.message,
     duration: durationMs,

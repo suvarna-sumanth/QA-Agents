@@ -29,7 +29,7 @@ const nextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['playwright', 'playwright-core', 'chromium-bidi'],
+  serverExternalPackages: ['playwright', 'playwright-core', 'chromium-bidi', 'rebrowser-playwright'],
 };
 
-module.exports = nextConfig;
+export default nextConfig;

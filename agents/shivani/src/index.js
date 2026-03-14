@@ -21,13 +21,13 @@ import fs from 'fs';
 
 // Load environment variables
 // Priority: .env.local (overrides) > .env (defaults)
-const rootDir = path.resolve(import.meta.dirname, '..', '..');
+const rootDir = process.cwd();
 dotenv.config({ path: path.join(rootDir, '.env.local') });
 dotenv.config({ path: path.join(rootDir, '.env') });
 
 import AgentShivani from './AgentShivani.js';
 
-const REPORTS_DIR = path.resolve(import.meta.dirname, '..', 'reports');
+const REPORTS_DIR = path.resolve(process.cwd(), 'agents/shivani/reports');
 
 function parseArgs() {
   const args = process.argv.slice(2);

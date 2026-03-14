@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: supabase-db
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: supabase-password
+    command: postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d
+    networks:
+      - supabase-network
+
+  # PostgREST - provides the REST API
+  rest:
+    image: postgrest/postgrest:v11.1.0
+    container_name: supabase-rest
+    ports:
+      - "54321:3000"
+    environment:
+      PGRST_DB_URI: postgres://postgres:supabase-password@db:5432/postgres
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: super-secret-jwt-token-must-be-at-least-32-characters
+    depends_on:
+      - db
+    networks:
+      - supabase-network
+
+  # Realtime - for subscriptions
+  realtime:
+    image: supabase/realtime:v2.25.26
+    container_name: supabase-realtime
+    ports:
+      - "4000:4000"
+    environment:
+      DB_HOST: db
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: supabase-password
+      DB_PORT: 5432
+      JWT_SECRET: super-secret-jwt-token-must-be-at-least-32-characters
+      PORT: 4000
+    depends_on:
+      - db
+    networks:
+      - supabase-network
+
+networks:
+  supabase-network:
+    driver: bridge
+
+volumes:
+  supabase-db-data:

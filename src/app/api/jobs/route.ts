@@ -1,102 +1,109 @@
 /**
  * POST /api/jobs
- * Submit a new job to an agent
+ * Submit a new job to the Cognitive Agent
  *
  * GET /api/jobs
- * List recent job
-
-s
+ * List recent jobs (Now queries from Supabase if available)
  */
 
-// In-memory job queue and registry (MVP)
-// In production, use Redis, BullMQ, or similar
-export const jobRegistry = new Map<
-  string,
-  {
-    jobId: string;
-    agentId: string;
-    type: 'domain' | 'url';
-    target: string;
-    status: 'queued' | 'running' | 'completed' | 'failed';
-    currentStep?: string;
-    createdAt: string;
-    lastUpdate: string;
-    completedAt?: string;
-    report?: any;
-    error?: string;
-  }
->();
+export const dynamic = 'force-dynamic';
 
-import { bootstrapAgents } from '@/lib/bootstrap-loader';
+import { supabase } from '../../../../agents/core/memory/supabase-client.js';
 import { existsSync } from 'fs';
-import path from 'path';
 
-/**
- * Dynamically import browser.js at runtime using path.resolve + webpackIgnore
- * to prevent Turbopack from statically analyzing and bundling playwright modules.
- */
-async function getBrowserModule() {
+// Instantiate the cognitive system dynamically to bypass Next.js Webpack bundling Playwright
+let cognitiveSystemCache: any = null;
+
+async function getCognitiveSystem() {
+  if (cognitiveSystemCache) return cognitiveSystemCache;
   try {
-    const browserPath = path.resolve(process.cwd(), 'agents', 'shivani', 'src', 'browser.js');
-    return await import(/* webpackIgnore: true */ browserPath);
-  } catch {
-    return null;
+    const mod = await import('../../../../agents/core/index.js');
+    cognitiveSystemCache = mod.createCognitiveSystem();
+    return cognitiveSystemCache;
+  } catch (err) {
+    console.error('[API] Error loading cognitive system:', err);
+    throw err;
   }
 }
+
+import { jobRegistry } from '@/lib/jobRegistry';
 
 async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string) {
   try {
     const { getStorage } = await import('@/lib/storage');
     const storage = getStorage();
 
-    // Track unique local paths we've already uploaded
-    const uploaded = new Map<string, string>(); // localPath -> s3Key
+    const uploaded = new Map<string, string>();
 
-    for (let i = 0; i < (report.steps || []).length; i++) {
-      const step = report.steps[i];
-      const localPath = step.screenshot;
-
-      if (!localPath || typeof localPath !== 'string') continue;
-      // Skip if already an S3 URL
-      if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
-      // Skip if file doesn't exist locally
-      if (!existsSync(localPath)) continue;
-
-      // Re-use if same file already uploaded
-      if (uploaded.has(localPath)) {
-        step.s3Key = uploaded.get(localPath);
+    // The new agent's report structure might be deeply nested in results
+    const results = report?.results || [];
+    
+    let stepIndex = 0;
+    for (const result of results) {
+      // test_player: data.report.steps[].screenshot
+      const reportSteps = result.data?.report?.steps;
+      if (reportSteps && Array.isArray(reportSteps)) {
+        for (const step of reportSteps) {
+          const localPath = step.screenshot;
+          if (!localPath || typeof localPath !== 'string') continue;
+          if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
+          if (!existsSync(localPath)) continue;
+          if (uploaded.has(localPath)) {
+            step.s3Key = uploaded.get(localPath);
+            continue;
+          }
+          try {
+            const s3Result = await storage.saveScreenshot(agentId, jobId, localPath, stepIndex++);
+            step.s3Key = s3Result.key;
+            uploaded.set(localPath, s3Result.key);
+            console.log(`[S3] Uploaded screenshot: ${s3Result.key}`);
+            try {
+              const { unlinkSync } = await import('fs');
+              if (existsSync(localPath)) unlinkSync(localPath);
+            } catch (e) {}
+          } catch (err) {
+            console.warn(`[S3] Failed to upload:`, err);
+          }
+        }
         continue;
       }
+      // detect_player or other: data.results[].screenshot
+      if (!result.data || !result.data.results) continue;
+      for (const step of result.data.results) {
+        const localPath = step.screenshot;
 
-      try {
-        const result = await storage.saveScreenshot(agentId, jobId, localPath, i);
-        step.s3Key = result.key;
-        uploaded.set(localPath, result.key);
-        console.log(`[S3] Uploaded screenshot for step ${i}: ${result.key}`);
-        
-        // CLEANUP: Delete local file after successful upload
-        try {
-          const { existsSync, unlinkSync } = await import('fs');
-          if (existsSync(localPath)) {
-            unlinkSync(localPath);
-          }
-        } catch (unlinkErr) {
-          console.warn(`[Cleanup] Failed to delete local screenshot ${localPath}:`, unlinkErr);
+        if (!localPath || typeof localPath !== 'string') continue;
+        if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
+        if (!existsSync(localPath)) continue;
+
+        if (uploaded.has(localPath)) {
+          step.s3Key = uploaded.get(localPath);
+          continue;
         }
-      } catch (err) {
-        console.warn(`[S3] Failed to upload screenshot for step ${i}:`, err);
+
+        try {
+          const s3Result = await storage.saveScreenshot(agentId, jobId, localPath, stepIndex++);
+          step.s3Key = s3Result.key;
+          uploaded.set(localPath, s3Result.key);
+          console.log(`[S3] Uploaded screenshot: ${s3Result.key}`);
+          
+          try {
+            const { unlinkSync } = await import('fs');
+            if (existsSync(localPath)) {
+              unlinkSync(localPath);
+            }
+          } catch (e) {}
+        } catch (err) {
+          console.warn(`[S3] Failed to upload:`, err);
+        }
       }
     }
 
-    // Upload the report itself
     try {
       await storage.saveReport(agentId, jobId, report);
-      console.log(`[S3] Report saved for job ${jobId}`);
-    } catch (err) {
-      console.warn(`[S3] Failed to save report:`, err);
-    }
+    } catch (err) {}
   } catch (err) {
-    console.warn(`[S3] Storage not available, screenshots remain local:`, err);
+    console.warn(`[S3] Storage not available:`, err);
   }
 }
 
@@ -105,78 +112,16 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { agentId, type, target, config = {} } = body;
 
-    // Validate input
-    if (!agentId || !type || !target) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Missing required fields: agentId, type, target',
-        },
-        { status: 400 }
-      );
+    if (!target) {
+      return Response.json({ success: false, error: 'Missing target URL/Domain' }, { status: 400 });
     }
 
-    if (!['domain', 'url'].includes(type)) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Invalid type. Must be "domain" or "url"',
-        },
-        { status: 400 }
-      );
-    }
-
-    // Get agent from registry
-    const { registry } = await bootstrapAgents();
-    const agent = registry.getAgent(agentId);
-
-    if (!agent) {
-      return Response.json(
-        {
-          success: false,
-          error: `Agent "${agentId}" not found`,
-        },
-        { status: 404 }
-      );
-    }
-
-    // Create job descriptor
     const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const job = {
-      jobId,
-      type,
-      target,
-      config,
-      onStepStart: (stepName: string, metadata: any) => {
-        const existing = jobRegistry.get(jobId);
-        if (existing) {
-          jobRegistry.set(jobId, {
-            ...existing,
-            currentStep: stepName,
-            status: 'running',
-            lastUpdate: new Date().toISOString(),
-          });
-        }
-      },
-      onStepEnd: (stepName: string, result: any) => {
-        const existing = jobRegistry.get(jobId);
-        if (existing) {
-          jobRegistry.set(jobId, {
-            ...existing,
-            status: 'running',
-            lastUpdate: new Date().toISOString(),
-          });
-        }
-      },
-      onError: (error: Error, context: any) => {
-        console.error(`[Job ${jobId}] Error in ${context.phase}:`, error.message);
-      },
-    };
 
-    // Register job as queued
+    // Optional: Log to local memory registry for fast dashboard UI updates
     jobRegistry.set(jobId, {
       jobId,
-      agentId,
+      agentId: agentId || 'cognitive-supervisor',
       type: type as 'domain' | 'url',
       target,
       status: 'queued',
@@ -184,103 +129,93 @@ export async function POST(request: Request) {
       lastUpdate: new Date().toISOString(),
     });
 
-    // Run job asynchronously (MVP: no queue, direct execution)
-    // In production, push to Redis queue instead
+    // Run asynchronously
     (async () => {
+      jobRegistry.set(jobId, { ...jobRegistry.get(jobId)!, status: 'running' });
+
+      let unsubscribe: any;
       try {
-        jobRegistry.set(jobId, {
-          ...jobRegistry.get(jobId)!,
-          status: 'running',
-          lastUpdate: new Date().toISOString(),
+        console.log(`[API] Dispatching ${target} to Cognitive Supervisor`);
+        
+        // Dynamically load the agent and logger
+        const { supervisor } = await getCognitiveSystem();
+        const { agentLogger } = await import('../../../../agents/core/Logger.js');
+
+        // Subscribe local registry to live updates
+        unsubscribe = agentLogger.subscribe((log: any) => {
+          if (log.jobId === jobId) {
+            const entry = jobRegistry.get(jobId);
+            if (entry) {
+              jobRegistry.set(jobId, {
+                ...entry,
+                currentStep: log.msg,
+                lastUpdate: new Date().toISOString()
+              });
+            }
+          }
         });
 
-        const report = await agent.runJob(job);
+        // The Cognitive Agent handles its own state graph
+        const finalState = await supervisor.run(jobId, target, null);
 
-        // Upload screenshots to S3 and save report
-        await uploadScreenshotsToS3(report, jobId, agentId);
-
-        // Close pooled browsers after job completes to free resources
-        // This ensures browsers don't stay open indefinitely
-        // Only attempt cleanup at runtime (not during build)
-        try {
-          const browserModule = await getBrowserModule();
-          if (browserModule?.closeBrowserForType) {
-            await browserModule.closeBrowserForType('perimeterx').catch(() => {});
-            await browserModule.closeBrowserForType('cloudflare').catch(() => {});
-          }
-        } catch {
-          // Silently ignore cleanup errors - browser pool will cleanup on app exit
-        }
+        // Try to upload screenshots found in the state
+        await uploadScreenshotsToS3(finalState, jobId, agentId || 'cognitive-supervisor');
 
         jobRegistry.set(jobId, {
           ...jobRegistry.get(jobId)!,
           status: 'completed',
-          report,
+          report: finalState, // Mount the LangGraph state as the report
           lastUpdate: new Date().toISOString(),
           completedAt: new Date().toISOString(),
         });
       } catch (err) {
+        console.error(`[API] Job ${jobId} failed:`, err);
         jobRegistry.set(jobId, {
           ...jobRegistry.get(jobId)!,
           status: 'failed',
-          error: err instanceof Error ? err.message : 'Unknown error',
+          error: err instanceof Error ? err.message : String(err),
           lastUpdate: new Date().toISOString(),
         });
-
-        // Also try to cleanup browsers on failure
-        try {
-          const browserModule = await getBrowserModule();
-          if (browserModule?.closeBrowserForType) {
-            await browserModule.closeBrowserForType('perimeterx').catch(() => {});
-            await browserModule.closeBrowserForType('cloudflare').catch(() => {});
-          }
-        } catch {
-          // Silently ignore cleanup errors
-        }
+      } finally {
+        if (typeof unsubscribe === 'function') unsubscribe();
       }
     })();
 
-    return Response.json(
-      {
-        success: true,
-        jobId,
-        status: 'queued',
-      },
-      { status: 202 }
-    );
+    return Response.json({ success: true, jobId, status: 'queued' }, { status: 202 });
   } catch (error) {
-    console.error('[API] POST /api/jobs error:', error);
-    return Response.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: String(error) }, { status: 500 });
   }
 }
 
 export async function GET() {
   try {
-    // Return list of recent jobs
-    const jobs = Array.from(jobRegistry.values());
+    // If Supabase is connected, we can fetch real test history
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('test_history')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+        
+      if (!error && data && data.length > 0) {
+        // Map DB rows to Dashboard format
+        const dbJobs = data.map((row: any) => ({
+          jobId: row.job_id,
+          target: row.url,
+          status: row.overall_status === 'pass' ? 'completed' : 
+                 (row.overall_status === 'error' ? 'failed' : 'completed'),
+          createdAt: row.created_at,
+          report: row,
+        }));
+        
+        return Response.json({ success: true, jobs: dbJobs, count: dbJobs.length }, { status: 200 });
+      }
+    }
 
-    return Response.json(
-      {
-        success: true,
-        jobs: jobs.slice(-20), // Return last 20 jobs
-        count: jobs.length,
-      },
-      { status: 200 }
-    );
+    // Fallback to in-memory registry
+    const jobs = Array.from(jobRegistry.values());
+    return Response.json({ success: true, jobs: jobs.slice(-20), count: jobs.length }, { status: 200 });
   } catch (error) {
-    console.error('[API] GET /api/jobs error:', error);
-    return Response.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
+    return Response.json({ success: false, error: String(error) }, { status: 500 });
   }
 }
