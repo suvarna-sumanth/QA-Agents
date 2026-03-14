@@ -16,11 +16,11 @@ This project supports a self-hosted Supabase environment for local development a
    - Automatically apply the schema from `supabase/migrations/00001_initial_schema.sql`.
 
 ## Configuration
-Update your root `.env` file with these local values:
+Update your root `.env` file with these local values. Get anon and service_role keys from your running Supabase (e.g. `supabase status` or from `supabase/docker/.env.docker` after first run).
 ```env
 NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb2plY3QtcmVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MTExMTExMTEsImV4cCI6MjExMTExMTExMX0.fake-key
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb2plY3QtcmVmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTYxMTExMTExMSwiZXhwIjoyMTExMTExMTExfQ.fake-service-key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key-from-supabase>
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key-from-supabase>
 ```
 
 ## Services Summary
