@@ -51,6 +51,12 @@ export const evaluateNode = (memoryService) => async (state) => {
     last_tested_at: new Date().toISOString()
   });
 
+  // Record strategy outcome for bypass_strategies (used by getBestStrategy on future runs)
+  const strategyName = protectionResult && protectionResult !== 'unknown' ? protectionResult : 'browser-headed';
+  await memoryService.recordStrategyResult(state.domain, strategyName, !hasErrors, totalDuration).catch((err) => {
+    console.warn('[Supervisor:Evaluate] Strategy record failed:', err?.message);
+  });
+
   // CLEANUP: Close the shared browser if it exists
   if (state.context?.sharedBrowser?.cleanup) {
     console.log('[Supervisor:Evaluate] Cleaning up shared browser session...');
