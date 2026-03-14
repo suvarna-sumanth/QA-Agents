@@ -149,21 +149,61 @@ export async function launchForUrl(url) {
 }
 
 /**
- * Simple Cloudflare browser launcher - avoids CDP patching issues
+ * Simple Cloudflare browser launcher.
+ * Uses Playwright's built-in chromium.launch() (same as test-cloudflare-articles.js) so
+ * Cloudflare serves the normal Turnstile challenge with iframe; the spawn+CDP approach
+ * can trigger a different challenge with no iframe in DOM.
  */
 async function launchCloudflareSimple() {
-  try {
-    // We use launchUndetectedBrowser but with useRebrowser: false
-    // This connects via regular Playwright but to a real Chrome process with a persistent profile
-    return await launchUndetectedBrowser({ 
-      useRebrowser: false, 
-      reusable: true,
-      poolKey: 'cloudflare' 
-    });
-  } catch (err) {
-    console.error('[Browser] Failed to launch simple Cloudflare browser:', err.message);
-    throw err;
+  const poolKey = 'cloudflare';
+  if (browserPool[poolKey]) {
+    try {
+      const poolEntry = browserPool[poolKey];
+      await poolEntry.browser.version();
+      const idleTime = Date.now() - lastBrowserUseTime[poolKey];
+      if (idleTime <= IDLE_TIMEOUT_MS) {
+        lastBrowserUseTime[poolKey] = Date.now();
+        browserStats.reuses++;
+        console.log(`[Browser] Reusing pooled ${poolKey} (Playwright) browser`);
+        return {
+          browser: poolEntry.browser,
+          cleanup: async () => {},
+          reused: true,
+        };
+      }
+      await poolEntry.browser.close().catch(() => {});
+      browserPool[poolKey] = null;
+    } catch (err) {
+      browserPool[poolKey] = null;
+    }
   }
+
+  console.log(`[Browser] Launching new ${poolKey} browser instance (Playwright)...`);
+  browserStats.launches++;
+  const launchOpts = {
+    headless: false,
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+    ],
+  };
+  let browser;
+  try {
+    browser = await regularChromium.launch({ ...launchOpts, channel: 'chrome' });
+  } catch (err) {
+    console.log(`[Browser] System Chrome not found (${err?.message}), using bundled Chromium`);
+    browser = await regularChromium.launch(launchOpts);
+  }
+  browserPool[poolKey] = { browser, chromeProcess: null, userDataDir: null };
+  lastBrowserUseTime[poolKey] = Date.now();
+  console.log(`[Browser] New ${poolKey} browser added to pool for future reuse`);
+
+  return {
+    browser,
+    cleanup: async () => { /* pooled, no-op */ },
+    reused: false,
+  };
 }
 
 /**

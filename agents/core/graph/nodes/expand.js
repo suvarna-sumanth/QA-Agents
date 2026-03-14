@@ -16,8 +16,9 @@ export const expandNode = async (state) => {
   if (skill === 'discover_articles' && data.urls && data.urls.length > 0) {
     console.log(`[Supervisor:Expand] Planning tests for ${data.urls.length} discovered articles.`);
     
-    // We limit to 2 articles to avoid infinite loops/long runs in MVP
-    const subset = data.urls.slice(0, 2);
+    // Use Mission Payload Depth (maxArticles) from initial job config
+    const maxToTest = Math.max(1, Math.min(100, state.maxArticles ?? 3));
+    const subset = data.urls.slice(0, maxToTest);
     
     for (const url of subset) {
       newSteps.push({ skill: 'detect_player', input: { urls: [url] } });

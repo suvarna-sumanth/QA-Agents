@@ -49,7 +49,7 @@ export class SupervisorAgent {
     return workflow.compile();
   }
 
-  async run(jobId, incomingUrl, sharedBrowserContext = null, onProgress = null) {
+  async run(jobId, incomingUrl, sharedBrowserContext = null, onProgress = null, options = {}) {
     let url = incomingUrl;
     // Basic normalization: ensure protocol and separator
     if (url.includes(':') && !url.includes('://')) {
@@ -65,10 +65,16 @@ export class SupervisorAgent {
       domain = url;
     }
 
+    const config = options?.config ?? options ?? {};
+    const maxArticles = typeof config.maxArticles === 'number' && config.maxArticles >= 1
+      ? Math.min(config.maxArticles, 100)
+      : 3;
+
     const initialState = {
       jobId,
       url,
       domain,
+      maxArticles,
       plan: [],
       currentStep: 0,
       results: [],

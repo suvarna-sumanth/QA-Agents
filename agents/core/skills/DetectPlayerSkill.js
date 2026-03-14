@@ -81,6 +81,14 @@ export class DetectPlayerSkill extends Skill {
       } else {
         browserContext = browser.contexts()[0] || await browser.newContext({ userAgent: INSTAREAD_USER_AGENT });
       }
+      if (context?.discoveryCookies?.length && isCloudflare) {
+        try {
+          await browserContext.addCookies(context.discoveryCookies);
+          console.log(`[DetectPlayerSkill] Injected ${context.discoveryCookies.length} cookies from standalone discovery`);
+        } catch (e) {
+          console.warn('[DetectPlayerSkill] Failed to add discovery cookies:', e?.message);
+        }
+      }
 
       // CHECK FOR SHARED PAGE FIRST
       const sharedPage = context?.sharedBrowser?.page;

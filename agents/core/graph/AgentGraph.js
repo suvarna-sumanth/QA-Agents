@@ -5,6 +5,7 @@ export const AgentState = Annotation.Root({
   jobId: Annotation({ default: () => null }),
   url: Annotation({ default: () => null }),
   domain: Annotation({ default: () => null }),
+  maxArticles: Annotation({ default: () => 3 }),
   siteProfile: Annotation({ default: () => null }),
   plan: Annotation({ default: () => [] }),
   currentStep: Annotation({ default: () => 0 }),

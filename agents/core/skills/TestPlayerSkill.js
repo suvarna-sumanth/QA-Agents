@@ -157,6 +157,14 @@ export class TestPlayerSkill extends Skill {
         page = await browserContext.newPage();
       }
     }
+    if (browserContext && context?.discoveryCookies?.length && isCloudflare) {
+      try {
+        await browserContext.addCookies(context.discoveryCookies);
+        console.log(`[TestPlayerSkill] Injected ${context.discoveryCookies.length} cookies from standalone discovery`);
+      } catch (e) {
+        console.warn('[TestPlayerSkill] Failed to add discovery cookies:', e?.message);
+      }
+    }
 
     const originalLog = console.log;
     console.log = function(...args) {

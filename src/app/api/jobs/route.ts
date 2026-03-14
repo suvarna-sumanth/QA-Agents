@@ -155,8 +155,8 @@ export async function POST(request: Request) {
           }
         });
 
-        // The Cognitive Agent handles its own state graph
-        const finalState = await supervisor.run(jobId, target, null);
+        // The Cognitive Agent handles its own state graph (config.maxArticles = Mission Payload Depth)
+        const finalState = await supervisor.run(jobId, target, null, null, config);
 
         // Try to upload screenshots found in the state
         await uploadScreenshotsToS3(finalState, jobId, agentId || 'cognitive-supervisor');

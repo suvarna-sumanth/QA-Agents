@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
+  // CLOUDFLARE_DISCOVERY_SCRIPT is set by scripts/run-dev-with-cloudflare.sh (or in .env) so Turbopack doesn't inline and try to resolve the path
   typescript: {
     ignoreBuildErrors: true,
   },

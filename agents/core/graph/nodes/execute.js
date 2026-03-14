@@ -24,11 +24,13 @@ export const executeNode = (skillRegistry) => async (state) => {
     const context = state.context || {};
     
     const result = await skillRegistry.execute(step.skill, step.input, context);
-    
+    if (step.skill === 'discover_articles' && result?.discoveryCookies?.length) {
+      context.discoveryCookies = result.discoveryCookies;
+    }
     return { 
       results: [{ step: state.currentStep, skill: step.skill, status: 'pass', data: result }],
       currentStep: state.currentStep + 1,
-      context: context // Pass back the potentially modified context (e.g. added sharedBrowser)
+      context
     };
   } catch (err) {
     console.warn(`[Supervisor:Execute] Skill ${step.skill} failed: ${err.message}`);

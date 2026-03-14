@@ -16,7 +16,7 @@ export const planNode = (memoryService) => async (state) => {
   
   if (isHome) {
     // Phase 1: Exploration
-    plan.push({ skill: 'discover_articles', input: { domain: state.url, maxArticles: 2 } });
+    plan.push({ skill: 'discover_articles', input: { domain: state.url, maxArticles: state.maxArticles ?? 3 } });
   } else {
     // Targeted Testing: Always check for bot protection first if we're unsure or it's known to exist
     if (!profile || profile.protection_type !== 'none') {

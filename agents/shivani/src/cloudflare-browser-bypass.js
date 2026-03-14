@@ -37,20 +37,20 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
       });
     }).catch(() => {});
 
-    // Step 1b: Wait a moment for the challenge iframe to load into the DOM
+    // Step 1b: Wait for the challenge iframe to load (Turnstile is injected by JS; use same timing as test-cloudflare-articles.js)
     console.log('[CF-Bypass] Waiting for challenge iframe to appear...');
     await page.waitForTimeout(2000);
 
-    // Step 1c: Wait specifically for the Turnstile iframe to be injected by JavaScript
+    // Step 1c: Wait for the Turnstile iframe to be injected by JavaScript (15s to match slower envs)
     console.log('[CF-Bypass] Waiting for Turnstile iframe to be created by JavaScript...');
     try {
       await page.waitForSelector('iframe[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]', {
-        timeout: 10000
+        timeout: 15000
       });
       console.log('[CF-Bypass] ✓ Turnstile iframe detected in DOM');
     } catch (err) {
-      console.log('[CF-Bypass] ⚠️ Turnstile iframe did not appear within 10 seconds');
-      // Continue anyway, it might appear later
+      console.log('[CF-Bypass] ⚠️ Turnstile iframe did not appear within 15 seconds');
+      // Continue anyway; iframe may appear later or page may use different challenge
     }
 
     // Debug: Log page structure to understand what we're dealing with
@@ -105,6 +105,25 @@ export async function solveCloudflareChallenge(page, maxWaitMs = 60000) {
       } else {
         console.log('[CF-Bypass] ⚠️ No Turnstile iframe found, trying alternate methods...');
         
+        // Method 0: Click the visible "Verify you are human" checkbox when widget is in main doc or shadow DOM
+        try {
+          const checkbox = page.getByRole('checkbox', { name: /verify you are human/i });
+          if (await checkbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await checkbox.click();
+            console.log('[CF-Bypass] ✓ Clicked "Verify you are human" checkbox');
+            await page.waitForTimeout(2000);
+          }
+        } catch (e) {
+          try {
+            const label = page.getByText('Verify you are human', { exact: false });
+            if (await label.isVisible({ timeout: 1000 }).catch(() => false)) {
+              await label.click();
+              console.log('[CF-Bypass] ✓ Clicked "Verify you are human" label');
+              await page.waitForTimeout(2000);
+            }
+          } catch (e2) {}
+        }
+
         // Method 1: Try to find ANY iframe and interact with it
         const allIframes = await page.locator('iframe').count();
         console.log(`[CF-Bypass] Found ${allIframes} total iframe(s) on page`);

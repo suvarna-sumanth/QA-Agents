@@ -78,8 +78,10 @@ export class DiscoverArticlesSkill extends Skill {
       urls = await this.discoverFromHomepage(domain, baseUrl, maxArticles);
     }
 
-    console.log(`[DiscoverArticlesSkill] Final result: ${urls.length} articles discovered`);
-    return { urls };
+    const out = Array.isArray(urls) ? { urls } : urls;
+    const count = out?.urls?.length ?? 0;
+    console.log(`[DiscoverArticlesSkill] Final result: ${count} articles discovered`);
+    return out;
   }
 
   async fetchText(url, timeoutMs = FETCH_TIMEOUT) {
@@ -200,25 +202,57 @@ export class DiscoverArticlesSkill extends Skill {
     }
 
     const protection = await detectProtection(domain);
+
+    // Cloudflare: run discovery in a standalone process (same as test-cloudflare-articles.js). Use internal API so path is not in the skill bundle (avoids Turbopack resolving it).
+    if (protection === 'cloudflare') {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+        || 'http://127.0.0.1:9002';
+      const apiUrl = `${String(baseUrl).replace(/\/$/, '')}/api/internal/cloudflare-discovery`;
+      console.log('[Discovery] Running Cloudflare discovery via standalone process (same as test script)...');
+      try {
+        const res = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.links && data.links.length > 0) {
+          console.log(`[Discovery] Standalone process returned ${data.links.length} links`);
+          const urls = await this.filterArticlesWithLLM(data.links, maxArticles);
+          return { urls, discoveryCookies: data.cookies || [] };
+        }
+        if (data.error) {
+          console.warn(`[Discovery] Standalone script error: ${data.error}`);
+        }
+      } catch (e) {
+        console.warn('[Discovery] Standalone discovery request failed:', e?.message || e);
+      }
+      console.log('[Discovery] Falling back to in-process Cloudflare discovery...');
+    }
+
     const { browser, cleanup } = await launchForUrl(domain);
 
     try {
       let context, page;
-
-      if (protection === 'cloudflare' || protection === 'townnews') {
-        context = await browser.newContext({
-          userAgent: INSTAREAD_USER_AGENT
+      if (protection === 'townnews') {
+        context = await browser.newContext({ userAgent: INSTAREAD_USER_AGENT });
+        page = await context.newPage();
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => false });
         });
         await applyStealthScripts(context);
-        page = await context.newPage();
         await page.setViewportSize({ width: 1280, height: 720 });
+        console.log(`[Discovery] Loading homepage: ${domain} (protection: ${protection})`);
+        await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
       } else {
-        context = browser.contexts()[0];
+        context = browser.contexts()[0] || await browser.newContext({ userAgent: INSTAREAD_USER_AGENT });
+        await applyStealthScripts(context);
         page = context.pages()[0] || await context.newPage();
+        await page.setViewportSize({ width: 1280, height: 720 });
+        console.log(`[Discovery] Loading homepage: ${domain} (protection: ${protection})`);
+        await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
       }
-
-      console.log(`[Discovery] Loading homepage: ${domain} (protection: ${protection})`);
-      await page.goto(domain, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
 
       let bypassSuccess = false;
       if (protection === 'cloudflare') {

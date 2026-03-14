@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "predev": "./scripts/setup-db.sh",
-    "dev": "next dev --turbopack -p 9002",
+    "dev": "npm run predev && node scripts/run-dev-with-cloudflare.js",
+    "dev:next": "next dev --turbopack -p 9002",
     "supabase:stop": "cd supabase/docker && docker-compose down",
     "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
     "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
