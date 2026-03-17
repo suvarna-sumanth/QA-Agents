@@ -10,6 +10,18 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ## 📚 Documentation Files
 
+### 0. [AUDIT_ISSUES_AND_SOLUTIONS.md](./AUDIT_ISSUES_AND_SOLUTIONS.md) 🆕
+**What**: Complete audit of all issues faced and solutions implemented
+- 7 major issues: ESM/CJS bundling, play button, screenshots, domains, proxy blocking, HTTP errors
+- Root cause analysis for each issue
+- Detailed solutions with code examples
+- Impact assessment and deployment status
+- Remaining known issues and recommendations
+
+**Read this when**: Understanding what went wrong, how it was fixed, and what's still pending
+
+---
+
 ### 1. [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 **What**: High-level system design
 - Component overview (API, Agent, Memory, Browser, Dashboard)
