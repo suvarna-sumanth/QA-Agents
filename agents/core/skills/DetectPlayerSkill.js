@@ -80,9 +80,11 @@ export class DetectPlayerSkill extends Skill {
         });
         await applyStealthScripts(browserContext);
       } else {
-        browserContext = browser.contexts()[0] || await browser.newContext({ 
+        // Always create a fresh context — reused contexts may lack ignoreHTTPSErrors.
+        browserContext = await browser.newContext({
           userAgent: INSTAREAD_USER_AGENT,
-          ignoreHTTPSErrors: true
+          ignoreHTTPSErrors: true,
+          viewport: { width: 1280, height: 720 }
         });
       }
       if (context?.discoveryCookies?.length && isCloudflare) {
@@ -191,6 +193,7 @@ export class DetectPlayerSkill extends Skill {
           await dismissPopups(page);
 
           const detection = await page.evaluate(() => {
+            // Primary: <instaread-player> custom element
             const player = document.querySelector('instaread-player');
             if (player) {
               const attrs = {};
@@ -200,6 +203,32 @@ export class DetectPlayerSkill extends Skill {
               return { found: true, selector: 'instaread-player', attributes: attrs };
             }
 
+            // Fallback: explicit Hill audio widget wrappers
+            const hillAudio = document.querySelector('div.instaread-audio-player');
+            if (hillAudio) {
+              return {
+                found: true,
+                selector: 'div.instaread-audio-player',
+                attributes: { class: hillAudio.className },
+              };
+            }
+
+            const hillIframe = document.querySelector('iframe#instaread_iframe');
+            if (hillIframe) {
+              return {
+                found: true,
+                selector: '#instaread_iframe',
+                attributes: { src: hillIframe.getAttribute('src') || null },
+              };
+            }
+
+            // Fallback: Check for class-based markers
+            const slot = document.querySelector('.instaread-player-slot, #instaread-player-container');
+            if (slot) {
+              return { found: true, selector: '.instaread-player-slot', attributes: { class: slot.className } };
+            }
+
+            // Shadow DOM check
             for (const el of document.querySelectorAll('*')) {
               if (el.shadowRoot) {
                 const sp = el.shadowRoot.querySelector('instaread-player');
@@ -214,6 +243,7 @@ export class DetectPlayerSkill extends Skill {
               }
             }
 
+            // Fallback: class/id/data attributes
             const fallback = document.querySelector(
               '[class*="instaread"], [id*="instaread"], [data-player="instaread"]'
             );
@@ -225,6 +255,7 @@ export class DetectPlayerSkill extends Skill {
               };
             }
 
+            // Fallback: instaread iframe
             const iframes = document.querySelectorAll('iframe[src*="instaread"]');
             if (iframes.length > 0) {
               return {

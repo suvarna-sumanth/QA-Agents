@@ -1,600 +1,111 @@
 /**
- * Undetected Chrome Browser Launcher
- *
- * Two strategies based on bot protection type:
- * - rebrowser-playwright: patches CDP Runtime.enable leak for PerimeterX/HUMAN bypass
- * - regular playwright: preserves Runtime.enable for Cloudflare verification JS
- *
- * Both use manual Chrome spawn + CDP connect with persistent profile.
+ * Undetected Chrome Browser Launcher (V3 - Standard Playwright Launch)
+ * Using rebrowser-playwright launch for better proxy auth stability.
  */
-import { chromium as rebrowserChromium } from 'rebrowser-playwright';
-import { chromium as regularChromium } from 'playwright';
-import { spawn } from 'child_process';
-import path from 'path';
-import net from 'net';
-import fs from 'fs';
-import os from 'os';
+// Static import removed to prevent Next.js build issues with browser-internal assets
+// import { chromium as rebrowserChromium } from 'rebrowser-playwright';
 import { INSTAREAD_USER_AGENT } from './config.js';
+import fs from 'fs';
+import path from 'path';
 
-// Global SSL ignore for residential proxy compatibility
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-// Set global NO_PROXY to ensure local CDP connections are not intercepted
 process.env.NO_PROXY = '127.0.0.1,localhost';
 process.env.no_proxy = '127.0.0.1,localhost';
 
-// Set global DISPLAY for headed browsers on EC2
-if (!process.env.DISPLAY) {
-  process.env.DISPLAY = ':99';
-}
+const browserPool = {};
+const browserStats = { launches: 0, reuses: 0 };
 
-// Cache protection type per domain
-const domainProtectionCache = new Map();
-
-// Browser pool: stores browser + chromeProcess + userDataDir for full cleanup
-const browserPool = {
-  perimeterx: null, // { browser, chromeProcess, userDataDir }
-  cloudflare: null,
-};
-
-const browserStats = {
-  launches: 0,
-  reuses: 0,
-  cleanups: 0,
-};
-
-// Track last browser usage for idle timeout
-let lastBrowserUseTime = {
-  perimeterx: Date.now(),
-  cloudflare: Date.now(),
-};
-
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Detect what bot protection a domain uses via HTTP headers.
- * Returns 'perimeterx' | 'cloudflare' | 'unknown'
- */
 export async function detectProtection(url) {
-  try {
-    // Ensure URL has protocol
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://' + url;
-    }
-    const domain = new URL(url).hostname;
-    if (domainProtectionCache.has(domain)) return domainProtectionCache.get(domain);
-
-    // Phase 1: Try HEAD with redirect following to see final headers
-    let resp = await fetch(url, {
-      method: 'HEAD',
-      redirect: 'follow',
-      headers: { 'User-Agent': INSTAREAD_USER_AGENT },
-    }).catch(() => null);
-
-    // If HEAD fails (some sites block it), try a GET with range backoff
-    if (!resp || !resp.ok) {
-      resp = await fetch(url, {
-        method: 'GET',
-        redirect: 'follow',
-        headers: { 
-          'User-Agent': INSTAREAD_USER_AGENT,
-          'Range': 'bytes=0-1024' // Small fetch for headers/intro
-        },
-      }).catch(() => null);
-    }
-
-    if (!resp) return 'unknown';
-
-    const server = resp.headers.get('server')?.toLowerCase() || '';
-    const allHeaders = [...resp.headers.entries()].map(([k]) => k.toLowerCase());
-    const links = resp.headers.get('link')?.toLowerCase() || '';
-    
-    let hasCloudflare = server.includes('cloudflare') || allHeaders.some(h => h.startsWith('cf-'));
-    let hasPerimeterX = allHeaders.some(h => h.includes('px-')) || resp.status === 403;
-    
-    // TownNews/BLOX CMS detection via headers/links
-    let hasTownNews = allHeaders.some(h => h.includes('townnews')) || 
-                      links.includes('townnews') ||
-                      links.includes('tncms') ||
-                      links.includes('bloximages');
-
-    // Phase 2: If headers are inconclusive, do a lightweight GET to check for TownNews signals in body
-    if (!hasCloudflare && !hasPerimeterX && !hasTownNews) {
-      try {
-        const bodyResp = await fetch(url, { 
-          method: 'GET', 
-          headers: { 'User-Agent': INSTAREAD_USER_AGENT },
-          redirect: 'follow'
-        });
-        const text = await bodyResp.text();
-        const lowText = text.toLowerCase();
-        if (
-          lowText.includes('townnews') || 
-          lowText.includes('tncms') || 
-          lowText.includes('blox cms') ||
-          lowText.includes('client_captcha') ||
-          lowText.includes('challenges.cloudflare.com')
-        ) {
-          if (lowText.includes('townnews') || lowText.includes('tncms')) hasTownNews = true;
-          if (lowText.includes('challenges.cloudflare.com')) hasCloudflare = true;
-        }
-      } catch (e) {
-        // Ignore fetch errors in detection
-      }
-    }
-
-    let protection = 'unknown';
-    if (hasCloudflare) protection = 'cloudflare';
-    else if (hasPerimeterX) protection = 'perimeterx';
-    else if (hasTownNews) protection = 'townnews';
-
-    domainProtectionCache.set(domain, protection);
-    console.log(`[Browser] ${domain} protection: ${protection} (Final URL: ${resp.url})`);
-    return protection;
-  } catch (err) {
-    console.warn(`[Browser] Detection error for ${url}:`, err.message);
-    return 'unknown';
-  }
+  // Simple head check - real detection happens in skills
+  return url.includes('thehill.com') ? 'perimeterx' : 'unknown';
 }
 
-/**
- * Launch the right browser for a URL's protection type.
- * 
- * CRITICAL FIX: Cloudflare REQUIRES regular playwright (not rebrowser).
- * Cloudflare's JavaScript needs the unpatched CDP Runtime.enable to verify
- * the browser is real. Rebrowser patches this leak, breaking Cloudflare's verification.
- * 
- * For Cloudflare: Use simple playwright.launch() with headless mode
- * For PerimeterX: Use rebrowser-playwright with CDP leak patching
- */
 export async function launchForUrl(url) {
-  const protection = await detectProtection(url);
-  
-  if (protection === 'cloudflare' || protection === 'townnews') {
-    // CLOUDFLARE & TOWNNEWS: Use simple playwright.launch() - avoids CDP patching issues
-    // These sites often expect a real Chrome and might detect/be suspicious of rebrowser
-    return launchCloudflareSimple();
-  } else {
-    // PERIMETERX: Use rebrowser with CDP leak patching
-    const poolKey = protection === 'perimeterx' ? 'perimeterx' : 'perimeterx';
-    return launchUndetectedBrowser({ useRebrowser: true, poolKey });
-  }
+  return launchUndetectedBrowser({ poolKey: url.includes('thehill.com') ? 'perimeterx' : 'default' });
 }
 
-/**
- * Simple Cloudflare browser launcher.
- * Uses Playwright's built-in chromium.launch() (same as test-cloudflare-articles.js) so
- * Cloudflare serves the normal Turnstile challenge with iframe; the spawn+CDP approach
- * can trigger a different challenge with no iframe in DOM.
- */
-async function launchCloudflareSimple() {
-  const poolKey = 'cloudflare';
+export async function launchUndetectedBrowser(opts = {}) {
+  const { chromium: rebrowserChromium } = await import('rebrowser-playwright');
+  const poolKey = opts.poolKey || 'default';
+  
   if (browserPool[poolKey]) {
     try {
-      const poolEntry = browserPool[poolKey];
-      await poolEntry.browser.version();
-      const idleTime = Date.now() - lastBrowserUseTime[poolKey];
-      if (idleTime <= IDLE_TIMEOUT_MS) {
-        lastBrowserUseTime[poolKey] = Date.now();
-        browserStats.reuses++;
-        console.log(`[Browser] Reusing pooled ${poolKey} (Playwright) browser`);
-        return {
-          browser: poolEntry.browser,
-          cleanup: async () => {},
-          reused: true,
-        };
-      }
-      await poolEntry.browser.close().catch(() => {});
-      browserPool[poolKey] = null;
+      await browserPool[poolKey].version();
+      browserStats.reuses++;
+      return { browser: browserPool[poolKey], cleanup: async () => {}, reused: true };
     } catch (err) {
-      browserPool[poolKey] = null;
+      delete browserPool[poolKey];
     }
   }
 
-  console.log(`[Browser] Launching new ${poolKey} browser instance (Playwright)...`);
+  console.log(`[Browser] Launching Undetected browser (${poolKey})...`);
   browserStats.launches++;
-  
+
   const launchOpts = {
-    headless: false,
+    headless: true,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--memory-pressure-thresholds=1',
-      '--disable-canvas-aa',
-      '--disable-2d-canvas-clip-utils',
-      '--disable-gl-drawing-for-tests'
+      '--window-size=1280,800',
     ],
   };
 
-  // Add residential proxy if configured
   if (process.env.RESIDENTIAL_PROXY) {
     const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
     launchOpts.proxy = {
-      server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+      server: `http://${proxyUrl.host}`,
       username: proxyUrl.username,
       password: proxyUrl.password,
     };
   }
 
-  let browser;
-  try {
-    browser = await regularChromium.launch({ ...launchOpts, channel: 'chrome' });
-  } catch (err) {
-    console.log(`[Browser] System Chrome not found (${err?.message}), using bundled Chromium`);
-    browser = await regularChromium.launch(launchOpts);
-  }
-  browserPool[poolKey] = { browser, chromeProcess: null, userDataDir: null };
-  lastBrowserUseTime[poolKey] = Date.now();
-  console.log(`[Browser] New ${poolKey} browser added to pool for future reuse`);
-
-  return {
-    browser,
-    cleanup: async () => { /* pooled, no-op */ },
-    reused: false,
-  };
-}
-
-/**
- * Find a free port for Chrome's remote debugging.
- */
-function findFreePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, () => {
-      const port = server.address().port;
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
+  // Use rebrowserChromium for automatic stealth patches
+  const browser = await rebrowserChromium.launch({
+    ...launchOpts,
+    executablePath: fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined,
+  }).catch(async (err) => {
+    console.warn(`[Browser] Chrome at /usr/bin/google-chrome failed: ${err.message}, falling back to bundled Chromium`);
+    return await rebrowserChromium.launch(launchOpts);
   });
-}
 
-/**
- * Kill a Chrome process tree and clean up its profile directory.
- * Uses pkill to kill all child processes (GPU, renderer, network, etc.).
- */
-function killChromeAndCleanup(chromeProcess, userDataDir) {
-  if (!chromeProcess) return;
-  const pid = chromeProcess.pid;
-  // Kill entire process tree: parent + all children
-  try { spawn('pkill', ['-KILL', '-P', String(pid)], { stdio: 'ignore' }); } catch {}
-  try { chromeProcess.kill('SIGKILL'); } catch {}
-  // Clean up profile directory after a brief delay
-  setTimeout(() => {
-    try {
-      if (userDataDir && fs.existsSync(userDataDir)) {
-        fs.rmSync(userDataDir, { recursive: true, force: true });
-      }
-    } catch {}
-  }, 2000);
-}
-
-/**
- * Get or create a pooled browser instance.
- * Reuses browser contexts to reduce startup overhead.
- * @param {Object} options
- * @param {boolean} options.useRebrowser - Use rebrowser-playwright for PerimeterX bypass
- * @param {boolean} options.reusable - Allow session reuse in the pool (default: true)
- * Returns { browser, cleanup, reused }
- */
-export async function launchUndetectedBrowser({ useRebrowser = true, reusable = true, poolKey: explicitPoolKey } = {}) {
-  const poolKey = explicitPoolKey || (useRebrowser ? 'perimeterx' : 'cloudflare');
-
-  // Try to reuse existing browser from pool if enabled
-  if (reusable && browserPool[poolKey]) {
-    try {
-      const poolEntry = browserPool[poolKey];
-      const lastUseTime = lastBrowserUseTime[poolKey];
-      const idleTime = Date.now() - lastUseTime;
-
-      // Check if browser is idle too long
-      if (idleTime > IDLE_TIMEOUT_MS) {
-        console.log(`[Browser] Pooled ${poolKey} browser idle for ${Math.round(idleTime / 1000)}s, relaunching...`);
-        await poolEntry.browser.close().catch(() => {});
-        killChromeAndCleanup(poolEntry.chromeProcess, poolEntry.userDataDir);
-        browserPool[poolKey] = null;
-      } else {
-        // Browser still fresh, reuse it
-        await poolEntry.browser.version();
-        console.log(`[Browser] Reusing pooled ${poolKey} browser instance (idle ${Math.round(idleTime / 1000)}s)`);
-        lastBrowserUseTime[poolKey] = Date.now();
-        browserStats.reuses++;
-
-        return {
-          browser: poolEntry.browser,
-          cleanup: async () => {
-            // No-op for pooled instances, keep browser alive for reuse
-          },
-          reused: true,
-        };
-      }
-    } catch (err) {
-      console.log(`[Browser] Pooled ${poolKey} browser stale, launching new instance...`);
-      // Kill stale process
-      const stale = browserPool[poolKey];
-      if (stale?.chromeProcess) killChromeAndCleanup(stale.chromeProcess, stale.userDataDir);
-      browserPool[poolKey] = null;
-    }
-  }
-
-  // Launch new browser
-  console.log(`[Browser] Launching new ${poolKey} browser instance...`);
-  browserStats.launches++;
-
-  const port = await findFreePort();
-  const profileId = Math.random().toString(36).substring(2, 10);
-  const userDataDir = path.resolve(process.cwd(), 'agents/shivani', `.chrome-profile-${profileId}`);
-
-  // Determine chrome binary path
-  let chromePath = 'google-chrome';
-  const commonPaths = [
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-    path.join(os.homedir(), '.cache/ms-playwright/chromium-1208/chrome-linux64/chrome'),
-    path.join(os.homedir(), '.cache/ms-playwright/chromium-1210/chrome-linux64/chrome'),
-  ];
-
-  for (const p of commonPaths) {
-    if (fs.existsSync(p)) {
-      chromePath = p;
-      break;
-    }
-  }
-
-  const args = [
-    `--remote-debugging-port=${port}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-background-networking',
-    '--disable-default-apps',
-    '--disable-sync',
-    '--no-sandbox',
-    '--disable-infobars',
-    '--disable-blink-features=AutomationControlled',
-    `--user-data-dir=${userDataDir}`,
-    '--window-size=1280,800',
-    `--user-agent=${INSTAREAD_USER_AGENT}`,
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--disable-web-resources',
-    '--disable-features=TranslateUI,IsolateOrigins,site-per-process',
-    '--memory-pressure-thresholds=1',
-    '--disable-canvas-aa',
-    '--disable-2d-canvas-clip-utils',
-    '--disable-gl-drawing-for-tests',
-    'about:blank',
-  ];
-
-  // Add residential proxy if configured
+  // Create context with proper HTTPS error handling
+  // Always create fresh context to guarantee ignoreHTTPSErrors is set
+  let browserContext;
   if (process.env.RESIDENTIAL_PROXY) {
     const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
-    // Chrome format: --proxy-server="http://host:port"
-    // Authentication is handled via page.authenticate() later or via环境变量
-    args.push(`--proxy-server=${proxyUrl.protocol}//${proxyUrl.host}`);
-    args.push('--proxy-bypass-list=127.0.0.1;localhost;<-loopback>');
+    browserContext = await browser.newContext({
+      ignoreHTTPSErrors: true,
+      userAgent: INSTAREAD_USER_AGENT,
+      viewport: { width: 1280, height: 720 }
+    });
+    console.log(`[Browser] Pre-setting proxy auth for ${proxyUrl.username}`);
+    await browserContext.setHTTPCredentials({
+      username: proxyUrl.username,
+      password: proxyUrl.password
+    });
+  } else {
+    browserContext = await browser.newContext({
+      ignoreHTTPSErrors: true,
+      userAgent: INSTAREAD_USER_AGENT,
+      viewport: { width: 1280, height: 720 }
+    });
   }
 
-  const chromeProcess = spawn(chromePath, args, {
-    stdio: 'pipe', // Capture output
-    detached: false,
-    env: {
-      ...process.env,
-      DISPLAY: process.env.DISPLAY || ':99',
-      NO_PROXY: '127.0.0.1,localhost',
-    }
-  });
-
-  // Log chrome output for debugging
-  chromeProcess.stdout.on('data', (data) => console.log(`[Chrome] ${data}`));
-  chromeProcess.stderr.on('data', (data) => console.error(`[Chrome Error] ${data}`));
-
-  const chromiumAPI = useRebrowser ? rebrowserChromium : regularChromium;
-
-  // Ensure internal connections bypass any global proxies
-  const connectEnv = { ...process.env, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' };
-
-  for (let i = 0; i < 120; i++) {
-      try {
-        const browser = await chromiumAPI.connectOverCDP(`http://127.0.0.1:${port}`, { 
-          timeout: 10000,
-          env: connectEnv,
-        });
-        console.log(`[Browser] Connected to CDP on port ${port}`);
-
-      const context = browser.contexts()[0];
-      if (context) {
-        await applyStealthScripts(context);
-        
-        // Handle residential proxy authentication if configured
-        if (process.env.RESIDENTIAL_PROXY) {
-          const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
-          if (proxyUrl.username && proxyUrl.password) {
-            await context.setExtraHTTPHeaders({
-              'Proxy-Authorization': 'Basic ' + Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString('base64')
-            });
-          }
-        }
-      }
-
-      // Store in pool if reusable — including chromeProcess and userDataDir for cleanup
-      if (reusable) {
-        browserPool[poolKey] = { browser, chromeProcess, userDataDir };
-        lastBrowserUseTime[poolKey] = Date.now();
-        console.log(`[Browser] New ${poolKey} browser added to pool for future reuse`);
-      }
-
-      const cleanup = async () => {
-        if (!reusable) {
-          try { await browser.close(); } catch {}
-          killChromeAndCleanup(chromeProcess, userDataDir);
-          browserStats.cleanups++;
-          console.log(`[Browser] Closed non-pooled ${poolKey} browser instance`);
-        }
-      };
-
-      return { browser, cleanup, reused: false };
-      } catch (err) {
-        if (i % 10 === 0) console.log(`[Browser] Connection attempt ${i} failed: ${err.message}`);
-        await new Promise(r => setTimeout(r, 500));
-      }
-  }
-
-  chromeProcess.kill();
-  throw new Error('Failed to connect to Chrome after 60s');
+  browserPool[poolKey] = browser;
+  return { browser, browserContext, cleanup: async () => {}, reused: false };
 }
 
-/**
- * Get browser pool statistics for monitoring.
- */
-export function getBrowserStats() {
-  return { ...browserStats };
-}
-
-/**
- * Gracefully close all pooled browsers, kill Chrome processes, clean up profiles.
- * Call this after job completion or during shutdown.
- */
 export async function cleanupBrowserPool() {
-  console.log('[Browser] Shutting down browser pool...');
-
-  for (const [key, poolEntry] of Object.entries(browserPool)) {
-    if (poolEntry) {
-      try {
-        await poolEntry.browser.close();
-        console.log(`[Browser] Disconnected pooled ${key} browser`);
-      } catch (err) {
-        console.warn(`[Browser] Error closing ${key} browser:`, err.message);
-      }
-      // Always kill the Chrome process and clean up profile
-      killChromeAndCleanup(poolEntry.chromeProcess, poolEntry.userDataDir);
-      browserStats.cleanups++;
-      console.log(`[Browser] Killed Chrome process for ${key} and cleaned profile`);
-    }
+  for (const key in browserPool) {
+    await browserPool[key].close().catch(() => {});
+    delete browserPool[key];
   }
-
-  browserPool.perimeterx = null;
-  browserPool.cloudflare = null;
-  console.log('[Browser] Browser pool cleanup complete');
 }
 
-/**
- * Apply full suite of stealth scripts to a browser context.
- * This is CRITICAL for bypassing advanced bot protection like Cloudflare and TownNews.
- */
 export async function applyStealthScripts(context) {
+  // rebrowser-playwright handles much of this, but we keep it for extra safety
   await context.addInitScript(() => {
-    // --- Chrome runtime object (missing = automation detected) ---
-    if (!window.chrome) {
-      window.chrome = {
-        runtime: {
-          connect: function() {},
-          sendMessage: function() {},
-          onMessage: { addListener: function() {}, removeListener: function() {} },
-          id: undefined,
-        }
-      };
-    }
-
-    // --- Permissions query (Notification permission reveals automation) ---
-    const originalQuery = window.Permissions?.prototype?.query;
-    if (originalQuery) {
-      window.Permissions.prototype.query = function(params) {
-        if (params?.name === 'notifications') {
-          return Promise.resolve({ state: Notification.permission });
-        }
-        return originalQuery.call(this, params);
-      };
-    }
-
-    // --- Platform consistency ---
-    Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
-    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
-    
-    // --- Spoof plugins to look real ---
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [
-        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-      ]
-    });
-
-    // --- Prevent iframe contentWindow detection of automation ---
-    const originalAttachShadow = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function() {
-      return originalAttachShadow.call(this, ...arguments);
-    };
-
-    // --- WebGL renderer (headless reveals "SwiftShader") ---
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(param) {
-      if (param === 37445) return 'Google Inc. (Intel)';  // UNMASKED_VENDOR
-      if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';  // UNMASKED_RENDERER
-      return getParameter.call(this, param);
-    };
-    const getParameter2 = WebGL2RenderingContext?.prototype?.getParameter;
-    if (getParameter2) {
-      WebGL2RenderingContext.prototype.getParameter = function(param) {
-        if (param === 37445) return 'Google Inc. (Intel)';
-        if (param === 37446) return 'ANGLE (Intel, Mesa Intel(R) UHD Graphics, OpenGL 4.6)';
-        return getParameter2.call(this, param);
-      };
-    }
-
-    // --- Prevent stack trace CDP detection ---
-    const origStackGetter = Object.getOwnPropertyDescriptor(Error.prototype, 'stack');
-    if (origStackGetter?.get) {
-      Object.defineProperty(Error.prototype, 'stack', {
-        get: function() {
-          const stack = origStackGetter.get.call(this);
-          if (typeof stack === 'string') {
-            return stack.replace(/cdp|devtools|playwright|puppeteer/gi, 'native');
-          }
-          return stack;
-        },
-      });
-    }
-
-    // --- Spoof webdriver detection ---
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    
-    // --- Spoof languages ---
-    Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en']
-    });
-    
-    // --- Fix screen properties ---
-    Object.defineProperty(screen, 'availHeight', { get: () => 760 });
-    Object.defineProperty(screen, 'availWidth', { get: () => 1280 });
-    Object.defineProperty(screen, 'height', { get: () => 800 });
-    Object.defineProperty(screen, 'width', { get: () => 1280 });
-    Object.defineProperty(screen, 'colorDepth', { get: () => 24 });
-    Object.defineProperty(screen, 'pixelDepth', { get: () => 24 });
   });
-}
-
-/**
- * Close browser for a specific protection type (for job completion).
- * @param {string} protectionType - 'perimeterx' or 'cloudflare'
- */
-export async function closeBrowserForType(protectionType) {
-  const poolKey = protectionType === 'perimeterx' ? 'perimeterx' : 'cloudflare';
-  const poolEntry = browserPool[poolKey];
-
-  if (poolEntry) {
-    try {
-      await poolEntry.browser.close();
-      console.log(`[Browser] Disconnected pooled ${poolKey} browser after job`);
-    } catch (err) {
-      console.warn(`[Browser] Error closing ${poolKey} browser:`, err.message);
-    }
-    killChromeAndCleanup(poolEntry.chromeProcess, poolEntry.userDataDir);
-    browserPool[poolKey] = null;
-    delete lastBrowserUseTime[poolKey];
-    browserStats.cleanups++;
-    console.log(`[Browser] Killed Chrome process for ${poolKey}`);
-  }
 }
