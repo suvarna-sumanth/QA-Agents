@@ -41,13 +41,19 @@ export function getRotatingProxyUrl() {
  */
 export function getRotatingProxyConfig() {
   const proxyUrl = getRotatingProxyUrl();
-  const url = new URL(proxyUrl);
-
-  return {
-    server: `http://${url.host}`,
-    username: url.username,
-    password: url.password,
-  };
+  try {
+    const url = new URL(proxyUrl);
+    const config = {
+      server: `http://${url.host}`,
+      username: url.username,
+      password: url.password,
+    };
+    console.log(`[ProxyRotation] Config created: ${config.username}`);
+    return config;
+  } catch (err) {
+    console.error(`[ProxyRotation] Failed to parse proxy URL: ${err.message}`);
+    throw err;
+  }
 }
 
 /**
