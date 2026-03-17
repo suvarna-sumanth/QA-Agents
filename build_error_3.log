@@ -1,0 +1,49 @@
+
+> nextn@0.1.0 build
+> NODE_ENV=production next build
+
+   ▲ Next.js 15.5.9
+   - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 8.7s
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+[SupabaseClient] Initializing with URL: http://localhost:54321
+   Generating static pages (0/10) ...
+   Generating static pages (2/10) 
+   Generating static pages (4/10) 
+   Generating static pages (7/10) 
+ ✓ Generating static pages (10/10)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      153 B         102 kB
+├ ○ /_not-found                            997 B         102 kB
+├ ƒ /api/agents                            153 B         102 kB
+├ ƒ /api/agents/telemetry                  153 B         102 kB
+├ ƒ /api/health                            153 B         102 kB
+├ ƒ /api/internal/cloudflare-discovery     153 B         102 kB
+├ ƒ /api/jobs                              153 B         102 kB
+├ ƒ /api/jobs/[id]                         153 B         102 kB
+├ ƒ /api/jobs/status                       153 B         102 kB
+├ ƒ /api/reports/[jobId]                   153 B         102 kB
+├ ƒ /api/reports/normalized                153 B         102 kB
+├ ƒ /api/reports/summary                   153 B         102 kB
+├ ƒ /api/screenshots                       153 B         102 kB
+├ ƒ /api/screenshots/local/[filename]      153 B         102 kB
+├ ○ /qa-dashboard                         167 kB         272 kB
+├ ○ /qa-dashboard/docs                    2.9 kB         108 kB
+├ ○ /qa-dashboard/jobs                   4.33 kB         109 kB
+└ ƒ /qa-dashboard/runs/[jobId]           7.95 kB         113 kB
++ First Load JS shared by all             101 kB
+  ├ chunks/255-fa5918c8960e9009.js       45.2 kB
+  ├ chunks/4bd1b696-1c88c00269cf164c.js  54.2 kB
+  └ other shared chunks (total)          1.98 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

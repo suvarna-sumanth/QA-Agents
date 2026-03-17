@@ -1,0 +1,205 @@
+================================================================================
+                    THEHILL.COM AGENT AUTOMATION FAILURE
+                              QUICK REFERENCE
+================================================================================
+
+ISSUE SUMMARY
+─────────────────────────────────────────────────────────────────────────────
+Domain:              thehill.com
+Problem:             SSL/TLS certificate validation errors during page navigation
+Error Code:          net::ERR_CERT_AUTHORITY_INVALID
+Skill Affected:      DetectPlayerSkill (player detection)
+Impact:              Cannot detect instaread-player elements; missions marked "partial"
+Status:              ROOT CAUSE IDENTIFIED ✓
+
+ROOT CAUSE
+─────────────────────────────────────────────────────────────────────────────
+File:                agents/shivani/src/browser.js (lines 72-87)
+Issue:               Browser context reuse without verifying ignoreHTTPSErrors setting
+Details:             When contexts are reused from browser pool, they may lack the
+                     ignoreHTTPSErrors: true flag, causing SSL validation to fail.
+                     This property cannot be changed after context creation, so
+                     certificate errors cannot be recovered.
+
+CURRENT BEHAVIOR
+─────────────────────────────────────────────────────────────────────────────
+Phase 1: Article Discovery ............................ ✓ SUCCESS
+  - Fetches sitemap: https://thehill.com/sitemap.xml
+  - Finds 1-2 article URLs
+  - Validates with LLM
+
+Phase 2: Player Detection ............................... ✗ FAILURE
+  - Browser: Launched successfully
+  - Context: Created without proper HTTPS handling
+  - Navigation: Fails with ERR_CERT_AUTHORITY_INVALID
+  - Retry: Browser context closed, unable to continue
+
+Phase 3: Fallback Testing .............................. ✓ SUCCESS
+  - Screenshot capture executed as fallback
+  - Image saved to S3
+
+Phase 4: Profile Update ................................ ✓ SUCCESS
+  - Domain profile marked with protection=perimeterx
+  - has_instaread_player=true
+
+Final Status: "partial" (some steps passed, detection failed)
+
+MISSION FLOW FAILURE POINT
+─────────────────────────────────────────────────────────────────────────────
+      SupervisorAgent.run(jobId, "thehill.com")
+              |
+              v
+      Planner: Plan execution steps
+              |
+              v
+      Execute: DiscoverArticlesSkill ......................... ✓
+              |
+              v
+      Expand: Plan tests for 1 articles
+              |
+              v
+      Execute: DetectPlayerSkill ............................. ✗ CERTIFICATE ERROR
+              |
+              v
+      Navigate article: page.goto(url)
+              |
+              X CRASH: net::ERR_CERT_AUTHORITY_INVALID
+              |
+              v
+      (Fallback) Execute: TestPlayerSkill ................... ✓
+              |
+              v
+      Evaluate: Update site profile
+              |
+              v
+      END: Report saved with partial=true
+
+PRODUCTION LOGS (2026-03-17 17:12:38 UTC)
+─────────────────────────────────────────────────────────────────────────────
+[DetectPlayerSkill] Checking: https://thehill.com/homenews/ap/...
+[DetectPlayerSkill] Loading page...
+[DetectPlayerSkill] Error on https://thehill.com/homenews/ap/...:
+  page.goto: net::ERR_CERT_AUTHORITY_INVALID at [URL]
+
+[rebrowser-patches][frames._context] cannot get world, error:
+  Error: Protocol error (Page.addScriptToEvaluateOnNewDocument):
+  Internal server error, session closed.
+
+[TestPlayerSkill] ✓ Full page captured: 1-page_load_error-full-1773767559812.png
+
+AFFECTED FILES
+─────────────────────────────────────────────────────────────────────────────
+PRIMARY (Need Fix):
+  - agents/shivani/src/browser.js
+    Lines 72-87: Browser context handling in launchUndetectedBrowser()
+    Fix: Always create fresh context with ignoreHTTPSErrors: true
+
+  - agents/core/skills/DetectPlayerSkill.js
+    Lines 56-87: Context reuse logic in execute()
+    Lines 115-120: Error handling for page.goto()
+    Fix: Use fresh contexts, add certificate error retry
+
+SECONDARY (Related):
+  - agents/shivani/src/config.js (stealth configuration - working)
+  - agents/core/graph/SupervisorAgent.js (orchestration - working)
+  - src/app/api/jobs/route.ts (API job handler - working)
+
+FIX IMPLEMENTATION
+─────────────────────────────────────────────────────────────────────────────
+Priority:            IMMEDIATE
+Complexity:          LOW (2 files, localized changes)
+Risk Level:          VERY LOW (isolated to certificate handling)
+Deployment Target:   EC2 instance 100.54.233.117
+Service:             qa-agents.service (systemd)
+Estimated Time:      30 minutes (code + deploy + test)
+
+Changes Required:
+  1. browser.js: Return browserContext from launch, ensure ignoreHTTPSErrors
+  2. DetectPlayerSkill.js: Use returned context, add certificate error retry
+
+Validation:
+  - Local test: npm run test:agent -- --domain thehill.com
+  - EC2 logs: journalctl -u qa-agents -f
+  - Dashboard: Monitor 3+ consecutive successful runs
+
+SUCCESS CRITERIA
+─────────────────────────────────────────────────────────────────────────────
+✓ No ERR_CERT_AUTHORITY_INVALID in logs
+✓ DetectPlayerSkill completes without errors
+✓ hasPlayer detection shows correct results
+✓ Mission status changes from "partial" to "pass"
+✓ 3+ consecutive successful runs
+
+EC2 CONNECTION
+─────────────────────────────────────────────────────────────────────────────
+ssh -i ~/.ssh/Website-Monitor.pem ec2-user@100.54.233.117
+
+Service Control:
+  systemctl status qa-agents          # Check status
+  systemctl restart qa-agents         # Restart service
+  journalctl -u qa-agents -f          # Follow logs
+
+Log Inspection:
+  journalctl -u qa-agents -n 200 --no-pager | grep thehill
+  journalctl -u qa-agents -n 300 --no-pager | grep -i cert
+
+ENVIRONMENT
+─────────────────────────────────────────────────────────────────────────────
+EC2 Instance:        ip-172-31-19-23.ec2.internal (100.54.233.117)
+Application Port:    9002
+Service:             qa-agents.service (enabled, auto-restart)
+Node.js:             v20+ (via npm)
+Browser:             Google Chrome (/usr/bin/google-chrome)
+Proxy:               Brightness/Brightdata residential (RESIDENTIAL_PROXY env)
+TLS Handling:        NODE_TLS_REJECT_UNAUTHORIZED=0 (globally disabled)
+
+INVESTIGATION DOCUMENTS
+─────────────────────────────────────────────────────────────────────────────
+1. THEHILL_INVESTIGATION.md
+   - Complete technical analysis
+   - Error logs and evidence
+   - Related files and dependencies
+   - Recommended fixes with code samples
+
+2. THEHILL_FIX_IMPLEMENTATION.md
+   - Step-by-step implementation guide
+   - Exact code changes needed
+   - Testing instructions
+   - Rollback plan
+
+3. project_thehill_investigation.md
+   - Investigation summary stored in memory
+   - Quick reference for future sessions
+   - Technical context and architecture notes
+
+QUICK DEBUG CHECKLIST
+─────────────────────────────────────────────────────────────────────────────
+If thehill.com fails again after fix:
+
+□ Check browser.js returns browserContext
+□ Verify context has ignoreHTTPSErrors: true
+□ Ensure DetectPlayerSkill uses returned context
+□ Confirm certificate error retry logic exists
+□ Check browser pool isn't reusing unconfigured contexts
+□ Verify Chrome/Chromium executable path correct
+□ Confirm RESIDENTIAL_PROXY env var set properly
+□ Check NODE_TLS_REJECT_UNAUTHORIZED=0 in environment
+□ Monitor rebrowser-playwright patches in logs
+
+ROLLBACK
+─────────────────────────────────────────────────────────────────────────────
+If issues occur after deploying fix:
+
+ssh -i ~/.ssh/Website-Monitor.pem ec2-user@100.54.233.117
+cd /home/ec2-user/QA-Agents
+git log --oneline -5          # See recent commits
+git revert HEAD               # Revert last changes
+sudo systemctl restart qa-agents
+
+Expected rollback time: < 2 minutes
+
+================================================================================
+Investigation completed: 2026-03-17
+Agent: Claude Code (Haiku 4.5)
+Status: Ready for implementation
+================================================================================

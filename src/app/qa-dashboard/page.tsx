@@ -26,7 +26,8 @@ import {
   Terminal,
   Layers,
   ChevronRight,
-  BarChart3
+  BarChart3,
+  XCircle as XCircleIcon
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -92,8 +93,27 @@ export default function QADashboard() {
   const [telemetryConnected, setTelemetryConnected] = useState(false);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [runningJob, setRunningJob] = useState<{ jobId: string; target: string; currentStep: string | null; progress?: number } | null>(null);
-  const [activityLogs, setActivityLogs] = useState<Array<{ time: string, msg: string, type: string, timestamp: number }>>([]);
+  const [activityLogs, setActivityLogs] = useState<Array<{ time: string, msg: string, type: string, timestamp: number, domain?: string, jobId?: string }>>([]);
   const [recentLogs, setRecentLogs] = useState<Array<{ time: string; msg: string; type: string }>>([]);
+  const [showToast, setShowToast] = useState(false);
+  const [toastContent, setToastContent] = useState({ title: '', description: '' });
+  const [specialistPulse, setSpecialistPulse] = useState<Record<string, number>>({
+    Orchestrator: 0,
+    Discovery: 0,
+    Detection: 0,
+    Functional: 0
+  });
+
+  // Track Specialist Activity Pulse
+  useEffect(() => {
+    if (activityLogs.length > 0) {
+      const last = activityLogs[0];
+      const type = last.type;
+      if (['Orchestrator', 'Discovery', 'Detection', 'Functional'].includes(type)) {
+        setSpecialistPulse(prev => ({ ...prev, [type]: prev[type] + 1 }));
+      }
+    }
+  }, [activityLogs]);
 
   useEffect(() => {
     setMounted(true);
@@ -195,11 +215,11 @@ export default function QADashboard() {
         
         // Auto-refresh reports when a mission completes
         if (data.message?.includes('Mission Accomplished')) {
-           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-             new Notification('QA Mission Complete', {
-               body: `Swarm has finished the task for ${data.jobId || 'current mission'}`,
-             });
-           }
+           setToastContent({
+             title: 'Mission Accomplished',
+             description: `QA Swarm has finished task for ${data.jobId || 'current target'}`
+           });
+           setShowToast(true);
            fetchDashboardData();
         }
 
@@ -568,20 +588,49 @@ export default function QADashboard() {
 
             <div className="flex-1 space-y-4 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
                {(() => {
-                 const latestLogs = (reports || [])
-                   .flatMap(r => (r.steps || []).map(s => ({ ...s, target: r.target, timestamp: r.timestamp })))
-                   .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                   .slice(0, 15);
+                 const latestLogs = [
+                   ...activityLogs.map(l => ({
+                     name: l.type || 'Specialist',
+                     message: l.msg,
+                     target: l.domain || 'Global',
+                     timestamp: l.timestamp || Date.now(),
+                     isLive: true
+                   })),
+                   ...(reports || [])
+                     .flatMap(r => (r.steps || []).map(s => ({ 
+                       ...s, 
+                       target: r.target, 
+                       timestamp: r.timestamp,
+                       isLive: false 
+                     })))
+                 ]
+                   .sort((a, b) => {
+                     const timeA = typeof a.timestamp === 'number' ? a.timestamp : new Date(a.timestamp).getTime();
+                     const timeB = typeof b.timestamp === 'number' ? b.timestamp : new Date(b.timestamp).getTime();
+                     return timeB - timeA;
+                   })
+                   .slice(0, 20);
 
                  if (latestLogs.length === 0) {
                    return <div className="text-[10px] text-slate-600 italic">Standby... Awaiting swarm telemetry</div>;
                  }
 
                  return latestLogs.map((log, i) => (
-                   <div key={i} className="flex gap-3 text-[10px] items-start group/log border-l border-white/5 pl-3 hover:border-blue-500/50 transition-colors">
+                   <div key={i} className={`flex gap-3 text-[10px] items-start group/log border-l pl-3 transition-colors ${log.isLive ? 'border-amber-500/50 bg-amber-500/5' : 'border-white/5 hover:border-blue-500/50'}`}>
                       <span className="text-slate-600 font-mono shrink-0">[{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]</span>
                       <div>
-                         <span className="text-blue-400 font-bold mr-2 uppercase">[{log.name.toLowerCase().includes('discover') ? 'Discovery' : log.name.toLowerCase().includes('detect') ? 'Detection' : (log.name.toLowerCase().includes('strategic') || log.name.toLowerCase().includes('plan')) ? 'Engineer' : 'Specialist'}]</span>
+                         <span className={`${log.isLive ? 'text-amber-400' : 'text-blue-400'} font-bold mr-2 uppercase tracking-tighter`}>
+                           [{log.isLive ? 'Live' : ''}
+                           {(() => {
+                             const t = log.name.toLowerCase();
+                             if (t.includes('discover')) return 'Discovery';
+                             if (t.includes('detect')) return 'Detection';
+                             if (t.includes('test') || t.includes('functional')) return 'Functional';
+                             if (t.includes('engineer') || t.includes('plan') || t.includes('supervisor') || t.includes('evaluate')) return 'Engineer';
+                             if (t.includes('bypass') || t.includes('system')) return 'System';
+                             return 'Specialist';
+                           })()}]
+                         </span>
                          <span className="text-slate-300 group-hover/log:text-white transition-colors">{log.message}</span>
                          <p className="text-[8px] text-slate-600 mt-0.5 font-bold uppercase tracking-widest">{log.target.replace('https://', '')}</p>
                       </div>
@@ -611,7 +660,7 @@ export default function QADashboard() {
 
       {/* Advanced Telemetry Section (Revealed when showAdvanced is true) */}
       {showAdvanced && (
-        <div className="mb-8 bg-black/80 rounded-3xl border border-indigo-500/30 p-8 shadow-[0_0_50px_rgba(79,229,15)] animate-in fade-in slide-in-from-top-4 duration-500">
+        <div className="mb-8 bg-black/80 rounded-3xl border border-indigo-500/30 p-8 shadow-[0_0_50px_rgba(79,70,229,0.3)] animate-in fade-in slide-in-from-top-4 duration-500">
            <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-4">
                  <div className="p-2 bg-indigo-500 rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.4)]">
@@ -654,24 +703,33 @@ export default function QADashboard() {
               {/* Specialist Health Grid */}
               <div className="grid grid-cols-2 gap-4">
                  {['Orchestrator', 'Discovery', 'Detection', 'Functional'].map(node => (
-                    <div key={node} className="bg-slate-900/50 border border-white/5 rounded-2xl p-6 flex flex-col justify-between hover:border-indigo-500/30 transition-colors">
+                    <div key={node} className="bg-slate-900/50 border border-white/5 rounded-2xl p-6 flex flex-col justify-between hover:border-indigo-500/30 transition-all group overflow-hidden relative">
+                       {specialistPulse[node] > 0 && (
+                         <div className="absolute top-0 right-0 p-2 opacity-10">
+                           <Zap className="w-12 h-12 text-indigo-400 animate-pulse" />
+                         </div>
+                       )}
                        <div className="flex justify-between items-start">
-                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{node}</span>
-                          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{node} Node</span>
+                          <div className={`w-2 h-2 rounded-full ${specialistPulse[node] > 0 ? 'bg-green-500 shadow-[0_0_10px_#22c55e]' : 'bg-slate-700'} transition-all`}></div>
                        </div>
                        <div>
-                          <p className="text-2xl font-black text-white tracking-tighter mb-1">99.9<span className="text-slate-600 text-[10px] ml-1 uppercase">uptime</span></p>
-                          <div className="flex items-center gap-1">
-                             <TrendingUp className="w-3 h-3 text-emerald-400" />
-                             <span className="text-[9px] font-bold text-emerald-400">+1.2% efficiency</span>
+                          <div className="flex items-baseline gap-1">
+                             <p className="text-2xl font-black text-white tracking-tighter">{specialistPulse[node] > 0 ? 'ACTIVE' : 'IDLE'}</p>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                               {specialistPulse[node]} payloads processed
+                             </span>
                           </div>
                        </div>
                     </div>
                  ))}
-                 <div className="col-span-2 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl p-6 flex items-center justify-between">
+                 <div className="col-span-2 bg-indigo-600/10 border border-indigo-500/20 rounded-2xl p-6 flex items-center justify-between group overflow-hidden relative">
+                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-indigo-500/5 to-transparent skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                     <div>
-                       <p className="text-xs font-black text-indigo-300 uppercase tracking-widest mb-1">Compute Distribution</p>
-                       <p className="text-sm font-bold text-white">Edge Node Cluster (Frankfurt)</p>
+                       <p className="text-xs font-black text-indigo-300 uppercase tracking-widest mb-1">Swarm Integrity</p>
+                       <p className="text-sm font-bold text-white">NOMINAL • Anomaly Density: 0.02%</p>
                     </div>
                     <Globe className="w-8 h-8 text-indigo-400 animate-spin-slow" />
                  </div>
@@ -827,6 +885,7 @@ export default function QADashboard() {
       </div>
 
       {/* Footer */}
+      {/* Footer */}
       <div className="mt-12 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-slate-500 border-t border-slate-900 pt-8">
         <p>Telemetry Pulse: {lastUpdate || 'Scanning...'}</p>
         <div className="flex gap-6">
@@ -834,6 +893,50 @@ export default function QADashboard() {
            <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div> Cluster: SWARM_01</span>
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed bottom-10 right-10 z-[100] animate-in slide-in-from-bottom-10 duration-700">
+           <div className="bg-slate-900 border-2 border-indigo-500/50 rounded-3xl p-6 shadow-[0_0_50px_rgba(79,70,229,0.4)] backdrop-blur-xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
+                 <Zap className="w-16 h-16 text-indigo-400" />
+              </div>
+              <div className="flex items-start gap-4">
+                 <div className="p-3 bg-indigo-500 rounded-2xl shadow-lg shadow-indigo-500/40">
+                    <CheckCircle className="w-6 h-6 text-white" />
+                 </div>
+                 <div className="flex-1">
+                    <h4 className="text-lg font-black text-white uppercase tracking-tight mb-1">{toastContent.title}</h4>
+                    <p className="text-xs text-slate-400 font-medium leading-relaxed max-w-[200px]">{toastContent.description}</p>
+                 </div>
+                 <button 
+                   onClick={() => setShowToast(false)}
+                   className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                 >
+                    <XCircleIcon className="w-5 h-5 text-slate-600" />
+                 </button>
+              </div>
+              <div className="mt-4 pt-4 border-t border-white/5 flex gap-3">
+                 <button 
+                    onClick={() => setShowToast(false)}
+                    className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
+                 >
+                    Acknowledge
+                 </button>
+              </div>
+              {/* Auto-closing progress bar */}
+              <div className="absolute bottom-0 left-0 h-1 bg-indigo-500 animate-[progress_5s_linear_forwards]"></div>
+           </div>
+        </div>
+      )}
+
+      {/* Global Style for the toast progress bar */}
+      <style jsx global>{`
+        @keyframes progress {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+      `}</style>
     </div>
   );
 }

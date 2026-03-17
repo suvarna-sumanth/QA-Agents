@@ -1,8 +1,5 @@
-/**
- * Centralized logging for cognitive agents.
- * Supports real-time stream callbacks and a recent-log buffer for dashboard polling.
- */
 const RECENT_LOG_MAX = 50;
+const GLOBAL_LOGGER_KEY = Symbol.for('qa-agents.logger');
 
 class AgentLogger {
   constructor() {
@@ -15,11 +12,6 @@ class AgentLogger {
     return () => this.callbacks.delete(callback);
   }
 
-  /**
-   * Get recent log entries for polling (e.g. by jobId). Newest first.
-   * @param {string} [jobId] - If provided, only logs for this job; otherwise last N globally.
-   * @param {number} [limit=20] - Max entries to return.
-   */
   getRecentLogs(jobId, limit = 20) {
     let list = this.recentLogs;
     if (jobId) {
@@ -42,8 +34,18 @@ class AgentLogger {
     if (this.recentLogs.length > RECENT_LOG_MAX) {
       this.recentLogs.shift();
     }
-    this.callbacks.forEach(cb => cb(logEntry));
+    this.callbacks.forEach(cb => {
+      try {
+        cb(logEntry);
+      } catch (err) {
+        console.error('[AgentLogger] Callback error:', err);
+      }
+    });
   }
 }
 
-export const agentLogger = new AgentLogger();
+if (!globalThis[GLOBAL_LOGGER_KEY]) {
+  globalThis[GLOBAL_LOGGER_KEY] = new AgentLogger();
+}
+
+export const agentLogger = globalThis[GLOBAL_LOGGER_KEY];

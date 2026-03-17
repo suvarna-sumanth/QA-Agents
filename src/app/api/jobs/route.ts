@@ -30,80 +30,12 @@ import { jobRegistry } from '@/lib/jobRegistry';
 
 async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string) {
   try {
-    const { getStorage } = await import('@/lib/storage');
-    const storage = getStorage();
-
-    const uploaded = new Map<string, string>();
-
-    // The new agent's report structure might be deeply nested in results
-    const results = report?.results || [];
-    
-    let stepIndex = 0;
-    for (const result of results) {
-      // test_player: data.report.steps[].screenshot
-      const reportSteps = result.data?.report?.steps;
-      if (reportSteps && Array.isArray(reportSteps)) {
-        for (const step of reportSteps) {
-          const localPath = step.screenshot;
-          if (!localPath || typeof localPath !== 'string') continue;
-          if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
-          if (!existsSync(localPath)) continue;
-          if (uploaded.has(localPath)) {
-            step.s3Key = uploaded.get(localPath);
-            continue;
-          }
-          try {
-            const s3Result = await storage.saveScreenshot(agentId, jobId, localPath, stepIndex++);
-            step.s3Key = s3Result.key;
-            uploaded.set(localPath, s3Result.key);
-            console.log(`[S3] Uploaded screenshot: ${s3Result.key}`);
-            try {
-              const { unlinkSync } = await import('fs');
-              if (existsSync(localPath)) unlinkSync(localPath);
-            } catch (e) {}
-          } catch (err) {
-            console.warn(`[S3] Failed to upload:`, err);
-          }
-        }
-        continue;
-      }
-      // detect_player or other: data.results[].screenshot
-      if (!result.data || !result.data.results) continue;
-      for (const step of result.data.results) {
-        const localPath = step.screenshot;
-
-        if (!localPath || typeof localPath !== 'string') continue;
-        if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
-        if (!existsSync(localPath)) continue;
-
-        if (uploaded.has(localPath)) {
-          step.s3Key = uploaded.get(localPath);
-          continue;
-        }
-
-        try {
-          const s3Result = await storage.saveScreenshot(agentId, jobId, localPath, stepIndex++);
-          step.s3Key = s3Result.key;
-          uploaded.set(localPath, s3Result.key);
-          console.log(`[S3] Uploaded screenshot: ${s3Result.key}`);
-          
-          try {
-            const { unlinkSync } = await import('fs');
-            if (existsSync(localPath)) {
-              unlinkSync(localPath);
-            }
-          } catch (e) {}
-        } catch (err) {
-          console.warn(`[S3] Failed to upload:`, err);
-        }
-      }
-    }
-
-    try {
-      await storage.saveReport(agentId, jobId, report);
-    } catch (err) {}
+    const { storage } = await import('@/lib/storage');
+    // Ensure we use the specialized sync logic which handles all various report structures
+    await storage.syncReportScreenshots(agentId, jobId, report);
+    console.log(`[S3] Successfully synced all report artifacts for ${jobId}`);
   } catch (err) {
-    console.warn(`[S3] Storage not available:`, err);
+    console.error(`[S3] Critical failure during artifact sync:`, err);
   }
 }
 

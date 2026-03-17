@@ -1,0 +1,18 @@
+nohup: ignoring input
+
+> nextn@0.1.0 start
+> next start -p 9002
+
+   ▲ Next.js 15.5.9
+   - Local:        http://localhost:9002
+   - Network:      http://192.168.0.12:9002
+
+ ✓ Starting...
+ ✓ Ready in 209ms
+[SupabaseClient] Initializing with URL: http://localhost:54321
+[SupabaseClient] ❌ Connection test failed: {
+  "message": "TypeError: fetch failed",
+  "details": "TypeError: fetch failed\n\nCaused by: ConnectTimeoutError: Connect Timeout Error (attempted addresses: 127.0.0.1:54321, ::1:54321, timeout: 10000ms) (UND_ERR_CONNECT_TIMEOUT)\nConnectTimeoutError: Connect Timeout Error (attempted addresses: 127.0.0.1:54321, ::1:54321, timeout: 10000ms)\n    at onConnectTimeout (node:internal/deps/undici/undici:2718:28)\n    at Immediate._onImmediate (node:internal/deps/undici/undici:2699:11)\n    at process.processImmediate (node:internal/timers:485:21)",
+  "hint": "",
+  "code": ""
+}

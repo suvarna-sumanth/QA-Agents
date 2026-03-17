@@ -94,3 +94,5 @@ export class SupervisorAgent {
     }
   }
 }
+
+export default SupervisorAgent;

@@ -209,8 +209,12 @@ class StorageService {
 
     // Process cognitive results
     for (const result of results) {
-      // test_player: data.report.steps[].screenshot
-      const reportSteps = result.data?.report?.steps;
+      // Check both 'data' and 'metadata' as different agents might use different conventions
+      const payload = result.data || result.metadata;
+      if (!payload) continue;
+
+      // test_player: payload.report.steps[].screenshot
+      const reportSteps = payload.report?.steps;
       if (Array.isArray(reportSteps)) {
         for (const step of reportSteps) {
           const localPath = step.screenshot;
@@ -221,8 +225,9 @@ class StorageService {
           } catch (e) {}
         }
       }
-      // other results
-      const innerResults = result.data?.results;
+      
+      // generic results or detect_player
+      const innerResults = payload.results;
       if (Array.isArray(innerResults)) {
         for (const step of innerResults) {
           const localPath = step.screenshot;

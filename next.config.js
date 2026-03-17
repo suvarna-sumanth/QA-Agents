@@ -30,10 +30,13 @@ const nextConfig = {
       },
     ],
   },
-  serverExternalPackages: ['playwright', 'playwright-core', 'chromium-bidi', 'rebrowser-playwright'],
-  devIndicators: {
-    buildActivity: false,
-    appIsrStatus: false,
+  serverExternalPackages: ['playwright', 'playwright-core', 'chromium-bidi', 'rebrowser-playwright', 'playwright-extra'],
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Force these to be external even if they are in sub-node_modules
+      config.externals.push('rebrowser-playwright', 'playwright-core');
+    }
+    return config;
   },
 };
 
