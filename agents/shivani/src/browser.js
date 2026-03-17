@@ -1,10 +1,12 @@
 /**
  * Undetected Chrome Browser Launcher (V3 - Standard Playwright Launch)
  * Using rebrowser-playwright launch for better proxy auth stability.
+ * Supports proxy rotation to avoid WAF detection/blocking.
  */
 // Static import removed to prevent Next.js build issues with browser-internal assets
 // import { chromium as rebrowserChromium } from 'rebrowser-playwright';
 import { INSTAREAD_USER_AGENT } from './config.js';
+import { getRotatingProxyConfig } from './proxy-rotation.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -63,13 +65,21 @@ export async function launchUndetectedBrowser(opts = {}) {
     ],
   };
 
-  if (process.env.RESIDENTIAL_PROXY) {
-    const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
-    launchOpts.proxy = {
-      server: `http://${proxyUrl.host}`,
-      username: proxyUrl.username,
-      password: proxyUrl.password,
-    };
+  // Use rotating proxy to avoid WAF detection
+  if (process.env.RESIDENTIAL_PROXY || process.env.BRIGHTDATA_CUSTOMER_ID) {
+    try {
+      launchOpts.proxy = getRotatingProxyConfig();
+    } catch (err) {
+      console.warn(`[Browser] Proxy rotation failed, falling back to static proxy: ${err.message}`);
+      if (process.env.RESIDENTIAL_PROXY) {
+        const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
+        launchOpts.proxy = {
+          server: `http://${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password,
+        };
+      }
+    }
   }
 
   // Use rebrowserChromium for automatic stealth patches
@@ -88,19 +98,29 @@ export async function launchUndetectedBrowser(opts = {}) {
   // Create context with proper HTTPS error handling
   // Always create fresh context to guarantee ignoreHTTPSErrors is set
   let browserContext;
-  if (process.env.RESIDENTIAL_PROXY) {
-    const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
-    browserContext = await browser.newContext({
-      ignoreHTTPSErrors: true,
-      acceptInsecureCerts: true,
-      userAgent: INSTAREAD_USER_AGENT,
-      viewport: { width: 1280, height: 720 }
-    });
-    console.log(`[Browser] Pre-setting proxy auth for ${proxyUrl.username}`);
-    await browserContext.setHTTPCredentials({
-      username: proxyUrl.username,
-      password: proxyUrl.password
-    });
+  if (process.env.RESIDENTIAL_PROXY || process.env.BRIGHTDATA_CUSTOMER_ID) {
+    try {
+      const proxyConfig = getRotatingProxyConfig();
+      browserContext = await browser.newContext({
+        ignoreHTTPSErrors: true,
+        acceptInsecureCerts: true,
+        userAgent: INSTAREAD_USER_AGENT,
+        viewport: { width: 1280, height: 720 }
+      });
+      console.log(`[Browser] Pre-setting proxy auth for ${proxyConfig.username}`);
+      await browserContext.setHTTPCredentials({
+        username: proxyConfig.username,
+        password: proxyConfig.password
+      });
+    } catch (err) {
+      console.warn(`[Browser] Failed to set rotating proxy credentials: ${err.message}`);
+      browserContext = await browser.newContext({
+        ignoreHTTPSErrors: true,
+        acceptInsecureCerts: true,
+        userAgent: INSTAREAD_USER_AGENT,
+        viewport: { width: 1280, height: 720 }
+      });
+    }
   } else {
     browserContext = await browser.newContext({
       ignoreHTTPSErrors: true,

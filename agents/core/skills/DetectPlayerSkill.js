@@ -3,6 +3,7 @@ import { INSTAREAD_USER_AGENT } from '../../shivani/src/config.js';
 import { launchForUrl, detectProtection, applyStealthScripts } from '../../shivani/src/browser.js';
 import { dismissPopups, bypassChallenge } from '../../shivani/src/bypass.js';
 import { bypassCloudflareIfNeeded } from '../../shivani/src/cloudflare-browser-bypass.js';
+import { forceNextZone } from '../../shivani/src/proxy-rotation.js';
 
 export class DetectPlayerSkill extends Skill {
   constructor() {
@@ -126,21 +127,42 @@ export class DetectPlayerSkill extends Skill {
         try {
           console.log(`[DetectPlayerSkill] Loading page at ${url}`);
 
-          // Try to navigate, with fallback for certificate errors
+          // Try to navigate, with fallback for certificate/WAF errors
           console.log(`[DetectPlayerSkill] Attempting navigation with domcontentloaded...`);
+          let navigationSucceeded = false;
           try {
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
             console.log(`[DetectPlayerSkill] Navigation succeeded!`);
+            navigationSucceeded = true;
           } catch (navErr) {
             console.log(`[DetectPlayerSkill] Navigation failed with error: ${navErr.message}`);
             const errStr = `${navErr.message}`;
-            const isCertError = errStr.includes('ERR_CERT') || errStr.includes('Certificate') || errStr.includes('net::ERR');
+            const isCertError = errStr.includes('ERR_CERT') || errStr.includes('Certificate');
+            const isNetError = errStr.includes('net::ERR');
+            const isWAFBlocked = errStr.includes('ERR_HTTP_RESPONSE_CODE_FAILURE') || errStr.includes('403') || errStr.includes('FORBIDDEN');
 
-            if (isCertError) {
+            if (isWAFBlocked) {
+              console.log(`[DetectPlayerSkill] WAF/HTTP 403 detected - rotating proxy IP and retrying...`);
+              forceNextZone();
+              try {
+                // Retry with rotated proxy (new browser instance would be needed, but we'll try current page once more)
+                await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+                console.log(`[DetectPlayerSkill] Navigation succeeded after proxy rotation!`);
+                navigationSucceeded = true;
+              } catch (retryErr) {
+                console.log(`[DetectPlayerSkill] Retry after proxy rotation failed: ${retryErr.message}`);
+                const retryErrStr = `${retryErr.message}`;
+                if (!retryErrStr.includes('ERR_') && !retryErrStr.includes('net::')) {
+                  throw retryErr;
+                }
+              }
+            } else if (isCertError || isNetError) {
               console.log(`[DetectPlayerSkill] Certificate/network error detected, retrying with alternate strategy...`);
               try {
                 // Try with 'load' instead of 'domcontentloaded'
                 await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+                console.log(`[DetectPlayerSkill] Navigation succeeded with alternate strategy!`);
+                navigationSucceeded = true;
               } catch (retryErr) {
                 const retryErrStr = `${retryErr.message}`;
                 if (!retryErrStr.includes('ERR_CERT') && !retryErrStr.includes('net::')) {
