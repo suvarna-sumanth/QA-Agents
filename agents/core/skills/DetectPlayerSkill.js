@@ -225,7 +225,8 @@ export class DetectPlayerSkill extends Skill {
           }
 
           console.log(`[DetectPlayerSkill] Waiting for player JS to render...`);
-          await page.waitForTimeout(6000);
+          // Increased wait time to ensure player JS loads (article 3 issue)
+          await page.waitForTimeout(10000);
 
           await dismissPopups(page);
 

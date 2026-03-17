@@ -122,6 +122,19 @@ export class TestPlayerSkill extends Skill {
     const startTime = Date.now();
     let stepCounter = 1;
 
+    // Extract a readable URL slug for grouping screenshots
+    const extractUrlSlug = (fullUrl) => {
+      try {
+        const urlObj = new URL(fullUrl);
+        const path = urlObj.pathname.replace(/^\/|\/$/g, '').split('/').slice(0, 3).join('/');
+        return path || urlObj.hostname;
+      } catch (e) {
+        return fullUrl.substring(0, 40);
+      }
+    };
+
+    const urlSlug = extractUrlSlug(url);
+
     const protection = await detectProtection(url);
     const isCloudflare = protection === 'cloudflare';
     const isTownNews = protection === 'townnews';
@@ -247,7 +260,7 @@ export class TestPlayerSkill extends Skill {
         await dismissPopups(page);
 
         steps.push({
-          name: 'Page Load',
+          name: `[${urlSlug}] Page Load`,
           status: 'pass',
           message: `Page loaded successfully: ${url}`,
           screenshot: initialScreenshot,
@@ -260,7 +273,7 @@ export class TestPlayerSkill extends Skill {
           } catch (e) {}
         }
         steps.push({
-          name: 'Page Load',
+          name: `[${urlSlug}] Page Load`,
           status: 'fail',
           message: `Failed to load page: ${err.message}`,
           screenshot: initialScreenshot,
@@ -287,7 +300,7 @@ export class TestPlayerSkill extends Skill {
         }
 
         steps.push({
-          name: 'Player Detection',
+          name: `[${urlSlug}] Player Detection`,
           status: playerEl ? 'pass' : 'fail',
           message: playerEl ? `Player element found via "${playerSelector}"` : 'Player element not found',
           screenshot: playerDetectionScreenshot,
@@ -295,7 +308,7 @@ export class TestPlayerSkill extends Skill {
         });
       } catch (err) {
         steps.push({
-          name: 'Player Detection',
+          name: `[${urlSlug}] Player Detection`,
           status: 'fail',
           message: `Player element not found: ${err.message}`,
           screenshot: playerDetectionScreenshot,
@@ -332,7 +345,7 @@ export class TestPlayerSkill extends Skill {
           const allElementsFound = iframeElements.hasAudio && iframeElements.hasPlayButton && iframeElements.hasSeekbar && iframeElements.hasSpeedButton;
 
           steps.push({
-            name: 'Iframe Elements Check',
+            name: `[${urlSlug}] Iframe Elements Check`,
             status: allElementsFound ? 'pass' : 'fail',
             message: `Iframe accessed | Audio: ${iframeElements.hasAudio}, Play: ${iframeElements.hasPlayButton}, Seek: ${iframeElements.hasSeekbar}, Speed: ${iframeElements.hasSpeedButton}`,
             screenshot: await this.capturePlayerScreenshot(page, screenshotDir, 'iframe_elements_visible', stepCounter++),
@@ -340,7 +353,7 @@ export class TestPlayerSkill extends Skill {
           });
         } else {
           steps.push({
-            name: 'Iframe Elements Check',
+            name: `[${urlSlug}] Iframe Elements Check`,
             status: 'fail',
             message: 'Could not access instaread iframe content',
             screenshot: null,
@@ -364,17 +377,51 @@ export class TestPlayerSkill extends Skill {
           await dismissPopups(page);
           await page.waitForTimeout(500);
 
-          const playBtn = await frame.$('#playCircleBlockButton') || await frame.$('#playCircleBlock');
+          let playBtn = await frame.$('#playCircleBlockButton')
+            || await frame.$('#playCircleBlock')
+            || await frame.$('button[aria-label*="play" i]')
+            || await frame.$('button.play')
+            || await frame.$('[class*="play"]');
+
           if (playBtn) {
             try {
-              await playBtn.click({ timeout: 5000 });
+              // Retry play button click up to 3 times
+              let clickSuccess = false;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  await playBtn.click({ timeout: 3000 });
+                  clickSuccess = true;
+                  console.log(`[TestPlayerSkill] Play button clicked (attempt ${attempt + 1})`);
+                  break;
+                } catch (e) {
+                  if (attempt < 2) {
+                    await frame.waitForTimeout(500);
+                    // Try to find play button again
+                    playBtn = await frame.$('#playCircleBlockButton')
+                      || await frame.$('#playCircleBlock')
+                      || await frame.$('button[aria-label*="play" i]');
+                  }
+                }
+              }
+
+              if (!clickSuccess) {
+                // Fallback: Try direct audio play via JavaScript
+                await frame.evaluate(() => {
+                  const audio = document.querySelector('audio#audioElement');
+                  if (audio) audio.play().catch(() => {});
+                });
+                console.log(`[TestPlayerSkill] Fallback: Used JavaScript to play audio`);
+              }
             } catch (clickErr) {
+              // Last resort: JavaScript play
               await frame.evaluate(() => {
                 const audio = document.querySelector('audio#audioElement');
                 if (audio) audio.play().catch(() => {});
               });
+              console.log(`[TestPlayerSkill] Fallback (error): Used JavaScript to play audio`);
             }
-            await frame.waitForTimeout(2000);
+
+            await frame.waitForTimeout(3000);
 
             const isPlaying = await frame.evaluate(() => {
               const audio = document.querySelector('audio#audioElement');
@@ -383,14 +430,14 @@ export class TestPlayerSkill extends Skill {
             });
 
             steps.push({
-              name: 'Play Button Click',
+              name: `[${urlSlug}] Play Button Click`,
               status: isPlaying ? 'pass' : 'fail',
               message: isPlaying ? 'Audio is playing' : 'Audio not playing after click',
               screenshot: await this.capturePlayerScreenshot(page, screenshotDir, 'after_play_click', stepCounter++),
               duration: Date.now() - step4Start,
             });
           } else {
-            steps.push({ name: 'Play Button Click', status: 'fail', message: 'Play button not found', screenshot: null, duration: Date.now() - step4Start });
+            steps.push({ name: `[${urlSlug}] Play Button Click`, status: 'fail', message: 'Play button not found', screenshot: null, duration: Date.now() - step4Start });
           }
         } catch (err) {
           steps.push({ name: 'Play Button Click', status: 'fail', message: `Play error: ${err.message}`, screenshot: null, duration: Date.now() - step4Start });
@@ -400,7 +447,7 @@ export class TestPlayerSkill extends Skill {
       // Adding a final capture
       const finalPlayerScreenshot = await this.capturePlayerScreenshot(page, screenshotDir, 'final_player_state', stepCounter++);
       steps.push({
-        name: 'Final Player State',
+        name: `[${urlSlug}] Final Player State`,
         status: 'info',
         message: 'Testing complete.',
         screenshot: finalPlayerScreenshot,
