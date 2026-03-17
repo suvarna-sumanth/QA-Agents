@@ -81,7 +81,8 @@ export class DetectPlayerSkill extends Skill {
         }
         browserContext = await browser.newContext({
           userAgent: INSTAREAD_USER_AGENT,
-          ignoreHTTPSErrors: true
+          ignoreHTTPSErrors: true,
+        acceptInsecureCerts: true
         });
         await applyStealthScripts(browserContext);
       } else {
@@ -90,6 +91,7 @@ export class DetectPlayerSkill extends Skill {
           browserContext = await browser.newContext({
             userAgent: INSTAREAD_USER_AGENT,
             ignoreHTTPSErrors: true,
+        acceptInsecureCerts: true,
             viewport: { width: 1280, height: 720 }
           });
         }

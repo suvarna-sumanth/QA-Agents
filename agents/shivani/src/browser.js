@@ -78,6 +78,7 @@ export async function launchUndetectedBrowser(opts = {}) {
     const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
     browserContext = await browser.newContext({
       ignoreHTTPSErrors: true,
+      acceptInsecureCerts: true,
       userAgent: INSTAREAD_USER_AGENT,
       viewport: { width: 1280, height: 720 }
     });
@@ -89,6 +90,7 @@ export async function launchUndetectedBrowser(opts = {}) {
   } else {
     browserContext = await browser.newContext({
       ignoreHTTPSErrors: true,
+      acceptInsecureCerts: true,
       userAgent: INSTAREAD_USER_AGENT,
       viewport: { width: 1280, height: 720 }
     });
