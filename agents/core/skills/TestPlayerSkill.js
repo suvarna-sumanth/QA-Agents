@@ -265,6 +265,7 @@ export class TestPlayerSkill extends Skill {
           message: `Page loaded successfully: ${url}`,
           screenshot: initialScreenshot,
           duration: Date.now() - step1Start,
+          articleUrl: url,
         });
       } catch (err) {
         if (!initialScreenshot && page) {
@@ -278,6 +279,7 @@ export class TestPlayerSkill extends Skill {
           message: `Failed to load page: ${err.message}`,
           screenshot: initialScreenshot,
           duration: Date.now() - step1Start,
+          articleUrl: url,
         });
         return { report: this.buildReport(url, steps, startTime) };
       }
@@ -305,6 +307,7 @@ export class TestPlayerSkill extends Skill {
           message: playerEl ? `Player element found via "${playerSelector}"` : 'Player element not found',
           screenshot: playerDetectionScreenshot,
           duration: Date.now() - step2Start,
+          articleUrl: url,
         });
       } catch (err) {
         steps.push({
@@ -313,6 +316,7 @@ export class TestPlayerSkill extends Skill {
           message: `Player element not found: ${err.message}`,
           screenshot: playerDetectionScreenshot,
           duration: Date.now() - step2Start,
+          articleUrl: url,
         });
         return { report: this.buildReport(url, steps, startTime) };
       }
@@ -350,6 +354,7 @@ export class TestPlayerSkill extends Skill {
             message: `Iframe accessed | Audio: ${iframeElements.hasAudio}, Play: ${iframeElements.hasPlayButton}, Seek: ${iframeElements.hasSeekbar}, Speed: ${iframeElements.hasSpeedButton}`,
             screenshot: await this.capturePlayerScreenshot(page, screenshotDir, 'iframe_elements_visible', stepCounter++),
             duration: Date.now() - step3Start,
+            articleUrl: url,
           });
         } else {
           steps.push({
@@ -358,15 +363,17 @@ export class TestPlayerSkill extends Skill {
             message: 'Could not access instaread iframe content',
             screenshot: null,
             duration: Date.now() - step3Start,
+            articleUrl: url,
           });
         }
       } catch (err) {
         steps.push({
-          name: 'Iframe Elements Check',
+          name: `[${urlSlug}] Iframe Elements Check`,
           status: 'fail',
           message: `Could not check iframe elements: ${err.message}`,
           screenshot: await this.capturePlayerScreenshot(page, screenshotDir, 'iframe_error', stepCounter++),
           duration: Date.now() - step3Start,
+          articleUrl: url,
         });
       }
 
@@ -462,12 +469,13 @@ export class TestPlayerSkill extends Skill {
               message: isPlaying ? 'Audio is playing' : 'Audio not playing after click',
               screenshot: await this.capturePlayerScreenshot(page, screenshotDir, 'after_play_click', stepCounter++),
               duration: Date.now() - step4Start,
+              articleUrl: url,
             });
           } else {
-            steps.push({ name: `[${urlSlug}] Play Button Click`, status: 'fail', message: 'Play button not found', screenshot: null, duration: Date.now() - step4Start });
+            steps.push({ name: `[${urlSlug}] Play Button Click`, status: 'fail', message: 'Play button not found', screenshot: null, duration: Date.now() - step4Start, articleUrl: url });
           }
         } catch (err) {
-          steps.push({ name: 'Play Button Click', status: 'fail', message: `Play error: ${err.message}`, screenshot: null, duration: Date.now() - step4Start });
+          steps.push({ name: `[${urlSlug}] Play Button Click`, status: 'fail', message: `Play error: ${err.message}`, screenshot: null, duration: Date.now() - step4Start, articleUrl: url });
         }
       }
 
@@ -479,6 +487,7 @@ export class TestPlayerSkill extends Skill {
         message: 'Testing complete.',
         screenshot: finalPlayerScreenshot,
         duration: 0,
+        articleUrl: url,
       });
 
     } finally {
