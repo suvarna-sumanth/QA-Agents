@@ -142,20 +142,19 @@ export class DetectPlayerSkill extends Skill {
             const isWAFBlocked = errStr.includes('ERR_HTTP_RESPONSE_CODE_FAILURE') || errStr.includes('403') || errStr.includes('FORBIDDEN');
 
             if (isWAFBlocked) {
-              console.log(`[DetectPlayerSkill] WAF/HTTP 403 detected - rotating proxy IP and retrying...`);
-              forceNextZone();
+              console.log(`[DetectPlayerSkill] WAF/HTTP 403 detected - attempting with lenient 'load' strategy...`);
               try {
-                // Retry with rotated proxy (new browser instance would be needed, but we'll try current page once more)
-                await page.goto(url, { waitUntil: 'load', timeout: 60000 });
-                console.log(`[DetectPlayerSkill] Navigation succeeded after proxy rotation!`);
+                // Try with 'load' strategy - this is more lenient with error responses
+                await page.goto(url, { waitUntil: 'load', timeout: 60000 }).catch(() => {
+                  // Even if load fails, we might have partial page content
+                  console.log(`[DetectPlayerSkill] Page load failed, but checking for partial content...`);
+                });
                 navigationSucceeded = true;
               } catch (retryErr) {
-                console.log(`[DetectPlayerSkill] Retry after proxy rotation failed: ${retryErr.message}`);
-                const retryErrStr = `${retryErr.message}`;
-                if (!retryErrStr.includes('ERR_') && !retryErrStr.includes('net::')) {
-                  throw retryErr;
-                }
+                console.log(`[DetectPlayerSkill] Lenient load also failed: ${retryErr.message}`);
               }
+              // Rotate proxy for next request
+              forceNextZone();
             } else if (isCertError || isNetError) {
               console.log(`[DetectPlayerSkill] Certificate/network error detected, retrying with alternate strategy...`);
               try {

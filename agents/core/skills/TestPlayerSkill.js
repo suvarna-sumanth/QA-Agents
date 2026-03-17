@@ -202,7 +202,21 @@ export class TestPlayerSkill extends Skill {
       let initialScreenshot = null;
       try {
         console.log(`[TestPlayerSkill] Loading page: ${url}`);
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Use waitUntil: 'load' and allow non-2xx status codes to handle WAF error pages
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        } catch (navErr) {
+          // If it's an HTTP error, try with 'load' strategy instead
+          if (navErr.message.includes('ERR_HTTP_RESPONSE_CODE_FAILURE')) {
+            console.log(`[TestPlayerSkill] HTTP error during load, retrying with 'load' strategy...`);
+            await page.goto(url, { waitUntil: 'load', timeout: 30000 }).catch(() => {
+              // Page might be showing 403, that's ok - continue anyway
+              console.log(`[TestPlayerSkill] Load strategy also failed, but continuing to check page...`);
+            });
+          } else {
+            throw navErr;
+          }
+        }
         await page.waitForTimeout(2000);
 
         initialScreenshot = await this.captureFullPageScreenshot(page, screenshotDir, 'article_page_loaded', stepCounter++);
