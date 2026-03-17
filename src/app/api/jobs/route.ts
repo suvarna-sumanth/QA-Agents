@@ -11,26 +11,10 @@ export const dynamic = 'force-dynamic';
 import { supabase } from '../../../../agents/core/memory/supabase-client.js';
 import { existsSync } from 'fs';
 
-// Instantiate the cognitive system dynamically to bypass Next.js Webpack bundling Playwright
-let cognitiveSystemCache: any = null;
-
 async function getCognitiveSystem() {
-  if (cognitiveSystemCache) return cognitiveSystemCache;
-  try {
-    // Try ESM import first, fall back to CJS wrapper
-    try {
-      const mod = await import('../../../../agents/core/index.mjs');
-      cognitiveSystemCache = mod.createCognitiveSystem();
-    } catch (esmErr: any) {
-      console.log('[API] ESM import failed, trying CJS wrapper:', esmErr?.message);
-      const { createCognitiveSystemAsync } = await import('../../../../agents/core/index-cjs.cjs');
-      cognitiveSystemCache = await createCognitiveSystemAsync();
-    }
-    return cognitiveSystemCache;
-  } catch (err) {
-    console.error('[API] Error loading cognitive system:', err);
-    throw err;
-  }
+  // Use the bootstrap-loader pattern which bypasses Webpack bundling
+  const { getCognitiveSystem: loadSystem } = await import('../../../lib/bootstrap-loader');
+  return await loadSystem();
 }
 
 import { jobRegistry } from '@/lib/jobRegistry';
@@ -110,7 +94,7 @@ export async function POST(request: Request) {
         } else {
            console.log(`[API] Falling back to default Cognitive Supervisor`);
            // The Cognitive Agent handles its own state graph (config.maxArticles = Mission Payload Depth)
-           const system: any = await import('../../../../agents/core/index.js').then(m => m.createCognitiveSystem());
+           const system: any = await getCognitiveSystem();
            finalState = await system.supervisor.run(jobId, target, null, null, config);
         }
 

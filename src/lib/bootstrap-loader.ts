@@ -6,18 +6,29 @@
 
 import path from 'path';
 
-let cached: any = null;
+let cachedBootstrap: any = null;
+let cachedCognitiveSystem: any = null;
 
 export async function getBootstrap() {
-  if (cached) return cached;
+  if (cachedBootstrap) return cachedBootstrap;
 
   // Construct the path at runtime so Turbopack cannot statically analyze it
   const bootstrapPath = path.resolve(process.cwd(), 'agents', 'core', 'bootstrap.js');
-  cached = await import(/* webpackIgnore: true */ bootstrapPath);
-  return cached;
+  cachedBootstrap = await import(/* webpackIgnore: true */ bootstrapPath);
+  return cachedBootstrap;
 }
 
 export async function bootstrapAgents() {
   const bootstrap = await getBootstrap();
   return bootstrap.bootstrapAgents();
+}
+
+export async function getCognitiveSystem() {
+  if (cachedCognitiveSystem) return cachedCognitiveSystem;
+
+  // Construct the path at runtime so Webpack cannot statically analyze it
+  const indexPath = path.resolve(process.cwd(), 'agents', 'core', 'index.js');
+  const mod = await import(/* webpackIgnore: true */ indexPath);
+  cachedCognitiveSystem = mod.createCognitiveSystem();
+  return cachedCognitiveSystem;
 }
