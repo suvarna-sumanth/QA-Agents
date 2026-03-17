@@ -77,8 +77,26 @@ export async function detectPlayer(urls, sharedBrowser = null) {
       }
 
       try {
-        console.log(`[Detect] Loading page...`);
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        console.log(`[Detect] Loading page at ${url}`);
+
+        // Try to navigate, with fallback for certificate errors
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        } catch (navErr) {
+          const errStr = `${navErr.message}`;
+          if (errStr.includes('net::ERR') || errStr.includes('Certificate')) {
+            console.log(`[Detect] Certificate error, retrying with 'load' waitUntil...`);
+            try {
+              await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+            } catch (retryErr) {
+              console.log(`[Detect] Cert error persists, continuing anyway...`);
+              // Continue with blank page
+            }
+          } else {
+            throw navErr;
+          }
+        }
+
         await page.waitForTimeout(2000);
 
         // Check for challenge BEFORE bypass attempt
