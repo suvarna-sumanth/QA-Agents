@@ -50,6 +50,7 @@ export async function launchUndetectedBrowser(opts = {}) {
       '--window-size=1280,800',
       '--ignore-certificate-errors',
       '--ignore-certificate-errors-spki-list',
+      '--test-type', // Additional flag to bypass some cert checks
     ],
   };
 
@@ -63,11 +64,15 @@ export async function launchUndetectedBrowser(opts = {}) {
   }
 
   // Use rebrowserChromium for automatic stealth patches
+  // Prefer system Chrome which may have better SSL handling
+  const chromeExePath = fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
+  console.log(`[Browser] Using Chrome executable: ${chromeExePath || 'bundled Chromium'}`);
+
   const browser = await rebrowserChromium.launch({
     ...launchOpts,
-    executablePath: fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined,
+    executablePath: chromeExePath,
   }).catch(async (err) => {
-    console.warn(`[Browser] Chrome at /usr/bin/google-chrome failed: ${err.message}, falling back to bundled Chromium`);
+    console.warn(`[Browser] Launch failed: ${err.message}, falling back to bundled Chromium`);
     return await rebrowserChromium.launch(launchOpts);
   });
 
