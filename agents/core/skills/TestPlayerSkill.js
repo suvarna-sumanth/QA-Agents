@@ -205,8 +205,7 @@ export class TestPlayerSkill extends Skill {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000);
 
-        // Skip full-page screenshot - only capture player element
-        initialScreenshot = null;
+        initialScreenshot = await this.captureFullPageScreenshot(page, screenshotDir, 'article_page_loaded', stepCounter++);
         
         let initialTitle = '';
         let bodyText = '';
@@ -242,7 +241,7 @@ export class TestPlayerSkill extends Skill {
             }
             if (challenged) {
               await page.waitForTimeout(4000);
-              // Skip full-page screenshot - only capture player element
+              await this.captureFullPageScreenshot(page, screenshotDir, 'challenge_bypassed', stepCounter++);
             } else {
               await page.waitForTimeout(5000);
             }
@@ -264,7 +263,7 @@ export class TestPlayerSkill extends Skill {
           name: `[${urlSlug}] Page Load`,
           status: 'pass',
           message: `Page loaded successfully: ${url}`,
-          screenshot: null, // Only player screenshots captured
+          screenshot: initialScreenshot,
           duration: Date.now() - step1Start,
         });
       } catch (err) {
@@ -277,7 +276,7 @@ export class TestPlayerSkill extends Skill {
           name: `[${urlSlug}] Page Load`,
           status: 'fail',
           message: `Failed to load page: ${err.message}`,
-          screenshot: null, // Only player screenshots captured
+          screenshot: initialScreenshot,
           duration: Date.now() - step1Start,
         });
         return { report: this.buildReport(url, steps, startTime) };
