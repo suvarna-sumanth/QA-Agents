@@ -17,8 +17,15 @@ let cognitiveSystemCache: any = null;
 async function getCognitiveSystem() {
   if (cognitiveSystemCache) return cognitiveSystemCache;
   try {
-    const mod = await import('../../../../agents/core/index.mjs');
-    cognitiveSystemCache = mod.createCognitiveSystem();
+    // Try ESM import first, fall back to CJS wrapper
+    try {
+      const mod = await import('../../../../agents/core/index.mjs');
+      cognitiveSystemCache = mod.createCognitiveSystem();
+    } catch (esmErr: any) {
+      console.log('[API] ESM import failed, trying CJS wrapper:', esmErr?.message);
+      const { createCognitiveSystemAsync } = await import('../../../../agents/core/index-cjs.cjs');
+      cognitiveSystemCache = await createCognitiveSystemAsync();
+    }
     return cognitiveSystemCache;
   } catch (err) {
     console.error('[API] Error loading cognitive system:', err);
