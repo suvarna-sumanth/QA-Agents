@@ -48,6 +48,8 @@ export async function launchUndetectedBrowser(opts = {}) {
       '--no-sandbox',
       '--disable-dev-shm-usage',
       '--window-size=1280,800',
+      '--ignore-certificate-errors',
+      '--ignore-certificate-errors-spki-list',
     ],
   };
 
