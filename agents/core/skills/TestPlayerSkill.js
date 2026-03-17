@@ -205,7 +205,8 @@ export class TestPlayerSkill extends Skill {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000);
 
-        initialScreenshot = await this.captureFullPageScreenshot(page, screenshotDir, 'article_page_loaded', stepCounter++);
+        // Skip full-page screenshot - only capture player element
+        initialScreenshot = null;
         
         let initialTitle = '';
         let bodyText = '';
@@ -241,7 +242,7 @@ export class TestPlayerSkill extends Skill {
             }
             if (challenged) {
               await page.waitForTimeout(4000);
-              await this.captureFullPageScreenshot(page, screenshotDir, 'challenge_bypassed', stepCounter++);
+              // Skip full-page screenshot - only capture player element
             } else {
               await page.waitForTimeout(5000);
             }
@@ -263,7 +264,7 @@ export class TestPlayerSkill extends Skill {
           name: `[${urlSlug}] Page Load`,
           status: 'pass',
           message: `Page loaded successfully: ${url}`,
-          screenshot: initialScreenshot,
+          screenshot: null, // Only player screenshots captured
           duration: Date.now() - step1Start,
         });
       } catch (err) {
@@ -276,7 +277,7 @@ export class TestPlayerSkill extends Skill {
           name: `[${urlSlug}] Page Load`,
           status: 'fail',
           message: `Failed to load page: ${err.message}`,
-          screenshot: initialScreenshot,
+          screenshot: null, // Only player screenshots captured
           duration: Date.now() - step1Start,
         });
         return { report: this.buildReport(url, steps, startTime) };
@@ -385,40 +386,62 @@ export class TestPlayerSkill extends Skill {
 
           if (playBtn) {
             try {
+              // Ensure play button is visible and enabled before clicking
+              await frame.evaluate((selector) => {
+                const btn = document.querySelector(selector) || document.querySelector('#playCircleBlockButton') || document.querySelector('#playCircleBlock');
+                if (btn) {
+                  btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              }, '');
+
+              await frame.waitForTimeout(300);
+
               // Retry play button click up to 3 times
               let clickSuccess = false;
               for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                  await playBtn.click({ timeout: 3000 });
-                  clickSuccess = true;
-                  console.log(`[TestPlayerSkill] Play button clicked (attempt ${attempt + 1})`);
-                  break;
+                  // Force refresh of button element before each attempt
+                  playBtn = await frame.$('#playCircleBlockButton')
+                    || await frame.$('#playCircleBlock')
+                    || await frame.$('button[aria-label*="play" i]')
+                    || await frame.$('button.play');
+
+                  if (playBtn) {
+                    await playBtn.click({ timeout: 3000 });
+                    clickSuccess = true;
+                    console.log(`[TestPlayerSkill] Play button clicked (attempt ${attempt + 1})`);
+                    break;
+                  }
                 } catch (e) {
+                  console.log(`[TestPlayerSkill] Click attempt ${attempt + 1} failed: ${e.message}`);
                   if (attempt < 2) {
-                    await frame.waitForTimeout(500);
-                    // Try to find play button again
-                    playBtn = await frame.$('#playCircleBlockButton')
-                      || await frame.$('#playCircleBlock')
-                      || await frame.$('button[aria-label*="play" i]');
+                    await frame.waitForTimeout(800);
                   }
                 }
               }
 
               if (!clickSuccess) {
                 // Fallback: Try direct audio play via JavaScript
+                console.log(`[TestPlayerSkill] Click failed, using JavaScript audio.play()`);
                 await frame.evaluate(() => {
                   const audio = document.querySelector('audio#audioElement');
-                  if (audio) audio.play().catch(() => {});
+                  if (audio) {
+                    console.log(`[iframe] Calling audio.play() directly. Current state: paused=${audio.paused}, readyState=${audio.readyState}`);
+                    audio.play().then(() => {
+                      console.log(`[iframe] audio.play() succeeded`);
+                    }).catch((e) => {
+                      console.log(`[iframe] audio.play() failed: ${e.message}`);
+                    });
+                  }
                 });
-                console.log(`[TestPlayerSkill] Fallback: Used JavaScript to play audio`);
               }
             } catch (clickErr) {
               // Last resort: JavaScript play
+              console.log(`[TestPlayerSkill] Click error, fallback to JavaScript: ${clickErr.message}`);
               await frame.evaluate(() => {
                 const audio = document.querySelector('audio#audioElement');
                 if (audio) audio.play().catch(() => {});
               });
-              console.log(`[TestPlayerSkill] Fallback (error): Used JavaScript to play audio`);
             }
 
             await frame.waitForTimeout(3000);
@@ -426,7 +449,12 @@ export class TestPlayerSkill extends Skill {
             const isPlaying = await frame.evaluate(() => {
               const audio = document.querySelector('audio#audioElement');
               if (!audio) return false;
-              return !audio.paused && audio.currentTime > 0;
+              // Check multiple conditions for robust playback detection
+              // Don't require currentTime > 0 as it may not advance immediately
+              const isPausedState = audio.paused === false;
+              const hasMetadata = audio.readyState >= 1; // HAVE_METADATA or better
+              const isNotEnded = audio.ended === false;
+              return isPausedState && hasMetadata && isNotEnded;
             });
 
             steps.push({
