@@ -10,8 +10,20 @@ export const dynamic = 'force-dynamic';
 
 import { supabase } from '../../../../agents/core/memory/supabase-client.js';
 import { existsSync } from 'fs';
-import { getCognitiveSystem } from '../../../lib/bootstrap-loader';
+import path from 'path';
 import { jobRegistry } from '@/lib/jobRegistry';
+
+let cachedCognitiveSystem: any = null;
+
+async function getCognitiveSystem() {
+  if (cachedCognitiveSystem) return cachedCognitiveSystem;
+
+  // Construct path at runtime so Webpack cannot statically analyze it
+  const indexPath = path.resolve(process.cwd(), 'agents', 'core', 'index.js');
+  const mod = await import(/* webpackIgnore: true */ indexPath);
+  cachedCognitiveSystem = mod.createCognitiveSystem();
+  return cachedCognitiveSystem;
+}
 
 async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string) {
   try {
