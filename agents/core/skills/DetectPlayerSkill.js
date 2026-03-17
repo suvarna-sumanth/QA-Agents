@@ -115,12 +115,15 @@ export class DetectPlayerSkill extends Skill {
         }
 
         try {
-          console.log(`[DetectPlayerSkill] Loading page...`);
+          console.log(`[DetectPlayerSkill] Loading page at ${url}`);
 
           // Try to navigate, with fallback for certificate errors
+          console.log(`[DetectPlayerSkill] Attempting navigation with domcontentloaded...`);
           try {
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            console.log(`[DetectPlayerSkill] Navigation succeeded!`);
           } catch (navErr) {
+            console.log(`[DetectPlayerSkill] Navigation failed with error: ${navErr.message}`);
             const errStr = `${navErr.message}`;
             const isCertError = errStr.includes('ERR_CERT') || errStr.includes('Certificate') || errStr.includes('net::ERR');
 
