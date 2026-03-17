@@ -640,7 +640,13 @@ export default function QADashboard() {
                           <span className="text-slate-300 leading-relaxed">{log.msg}</span>
                        </div>
                     ))}
-                    {advancedLogs.length === 0 && !telemetryError && <div className="text-slate-600 animate-pulse italic">Connecting to event pool...</div>}
+                    {advancedLogs.length === 0 && !telemetryError && (
+                      <div className="text-slate-600 italic">
+                        {runningJob
+                          ? 'Swarm is initializing live telemetry for the current mission...'
+                          : `No active missions. Last telemetry pulse: ${lastUpdate || 'idle'}. Launch a job to see live swarm logs here.`}
+                      </div>
+                    )}
                     {advancedLogs.length === 0 && telemetryError && <div className="text-amber-500/90 italic">{telemetryError}</div>}
                  </div>
               </div>

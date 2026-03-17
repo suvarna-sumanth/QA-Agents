@@ -163,6 +163,16 @@ export async function detectPlayer(urls, sharedBrowser = null) {
         // Dismiss any popups/overlays before detection and screenshots
         await dismissPopups(page);
 
+        // Give the Instaread iframe / audio widget a bit more time to attach to the DOM
+        try {
+          await page.waitForSelector(
+            'iframe#instaread_iframe, div.instaread-audio-player, instaread-player, [class*="instaread"], [id*="instaread"]',
+            { timeout: 10000 }
+          );
+        } catch {
+          // Soft timeout is fine – we still run detection logic below.
+        }
+
         // Detect player in the rendered DOM
         const detection = await page.evaluate(() => {
           // Primary: <instaread-player> custom element
@@ -173,6 +183,25 @@ export async function detectPlayer(urls, sharedBrowser = null) {
               attrs[attr.name] = attr.value;
             }
             return { found: true, selector: 'instaread-player', attributes: attrs };
+          }
+
+          // Fallback: explicit Hill audio widget wrappers
+          const hillAudio = document.querySelector('div.instaread-audio-player');
+          if (hillAudio) {
+            return {
+              found: true,
+              selector: 'div.instaread-audio-player',
+              attributes: { class: hillAudio.className },
+            };
+          }
+
+          const hillIframe = document.querySelector('iframe#instaread_iframe');
+          if (hillIframe) {
+            return {
+              found: true,
+              selector: '#instaread_iframe',
+              attributes: { src: hillIframe.getAttribute('src') || null },
+            };
           }
 
           // Fallback: Check for class-based markers

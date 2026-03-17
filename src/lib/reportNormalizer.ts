@@ -94,6 +94,7 @@ function cognitiveToLegacy(cognitive: any): any {
   const results = cognitive.results || [];
   const steps: any[] = [];
   const uniqueArticleUrls = new Set<string>();
+  let protection: string | undefined;
 
   for (const r of results) {
     if (r.skill === 'discover_articles' && r.data?.urls?.length) {
@@ -101,14 +102,27 @@ function cognitiveToLegacy(cognitive: any): any {
       continue;
     }
     if (r.skill === 'detect_player' && r.data?.results) {
+      if (!protection && typeof r.data.protection === 'string') {
+        protection = r.data.protection;
+      }
       for (const item of r.data.results) {
         const url = (item.url || '').trim();
         if (url) uniqueArticleUrls.add(url);
         const short = url.split('/').filter(Boolean).pop() || 'article';
+        const isPerimeterX = protection === 'perimeterx';
+
         steps.push({
           name: `[${short}] Detection`,
-          status: item.hasPlayer ? 'pass' : 'fail',
-          message: item.hasPlayer ? 'Player detected' : 'No instaread-player detected',
+          status: item.hasPlayer
+            ? 'pass'
+            : isPerimeterX
+              ? 'partial'
+              : 'fail',
+          message: item.hasPlayer
+            ? 'Player detected'
+            : isPerimeterX
+              ? 'Blocked by PerimeterX WAF (no player accessible)'
+              : 'No instaread-player detected',
           duration: 0,
           screenshot: item.screenshot,
           s3Key: item.s3Key,
@@ -145,7 +159,11 @@ function cognitiveToLegacy(cognitive: any): any {
     duration: durationMs,
     totalDuration: durationMs,
     overallStatus: cognitive.overallStatus || (steps.some((s: any) => s.status === 'fail') ? 'fail' : 'pass'),
-    metadata: { ...(cognitive.metadata || {}), articlesWithPlayer },
+    metadata: {
+      ...(cognitive.metadata || {}),
+      articlesWithPlayer,
+      ...(protection ? { protection } : {}),
+    },
   };
 }
 
@@ -167,7 +185,28 @@ export function normalizeReport(rawReport: any): NormalizedReport {
   };
 
   const passRate = summary.total > 0 ? (summary.passed / summary.total) * 100 : 0;
-  const { statusLabel, statusColor } = getStatusDisplay(raw.overallStatus || (summary.failed > 0 ? 'fail' : 'pass'));
+
+  // Derive base overall status from multiple possible shapes (DB rows vs in-memory reports)
+  let baseOverallStatus: RawReport['overallStatus'] =
+    raw.overallStatus ??
+    raw.overall_status ??
+    rawReport.overallStatus ??
+    rawReport.overall_status ??
+    (summary.failed > 0 ? 'fail' : 'pass');
+
+  // Detect WAF / protection metadata (e.g. PerimeterX) and map to a clearer semantic status
+  const protection =
+    raw.metadata?.protection ||
+    raw.protection ||
+    rawReport.metadata?.protection ||
+    rawReport.protection;
+
+  if (protection === 'perimeterx' && baseOverallStatus === 'fail') {
+    // Distinguish infra / WAF blockage from a genuine player regression
+    baseOverallStatus = 'partial';
+  }
+
+  const { statusLabel, statusColor } = getStatusDisplay(baseOverallStatus || (summary.failed > 0 ? 'fail' : 'pass'));
 
   const durationMs = raw.duration || raw.total_duration_ms || raw.totalDuration || 0;
   const durationSeconds = Math.round(durationMs / 1000);
@@ -196,7 +235,7 @@ export function normalizeReport(rawReport: any): NormalizedReport {
     startedAt: timestamp,
     completedAt: timestamp,
 
-    overallStatus: raw.overallStatus || (summary.failed > 0 ? 'fail' : 'pass'),
+    overallStatus: baseOverallStatus || (summary.failed > 0 ? 'fail' : 'pass'),
     statusLabel: raw.metadata?.statusLabel || statusLabel,
     statusColor: raw.metadata?.statusColor || statusColor,
 
@@ -215,6 +254,7 @@ export function normalizeReport(rawReport: any): NormalizedReport {
       ...raw.metadata,
       swarmActive: true,
       parallelEfficiency: raw.metadata?.swarmEfficiency || 0,
+      ...(protection ? { protection } : {}),
     },
     aiSummary,
   };
