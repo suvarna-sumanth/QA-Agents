@@ -116,7 +116,28 @@ export class DetectPlayerSkill extends Skill {
 
         try {
           console.log(`[DetectPlayerSkill] Loading page...`);
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+          // Try to navigate, with fallback for certificate errors
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          } catch (navErr) {
+            // If it's a cert error, try with waitUntil 'load' instead
+            if (navErr.message.includes('ERR_CERT') || navErr.message.includes('Certificate')) {
+              console.log(`[DetectPlayerSkill] Certificate error on initial load, retrying with alternate strategy...`);
+              try {
+                await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+              } catch (retryErr) {
+                if (!retryErr.message.includes('ERR_CERT')) {
+                  throw retryErr; // Throw non-cert errors
+                }
+                // If still cert error, log but continue with blank page
+                console.log(`[DetectPlayerSkill] Persisting cert error on ${url}, continuing with blank page`);
+              }
+            } else {
+              throw navErr;
+            }
+          }
+
           await page.waitForTimeout(2000);
 
           let initialTitle = '';
