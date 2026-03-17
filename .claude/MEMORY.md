@@ -10,7 +10,31 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ## 📚 Documentation Files
 
-### 0. [AUDIT_ISSUES_AND_SOLUTIONS.md](./AUDIT_ISSUES_AND_SOLUTIONS.md) 🆕
+### 0. [STATUS_REPORT.md](./STATUS_REPORT.md) ⭐ **START HERE**
+**What**: Current system status and what needs your attention
+- What's working (all job execution!)
+- What's broken (thehill.com HTTP 403)
+- Why proxy rotation alone doesn't help
+- What you need to decide and do next
+- 3 concrete options with effort/impact
+
+**Read this when**: You want a quick overview of current state
+
+---
+
+### 1. [NEXT_STEPS_IMPLEMENTATION.md](./NEXT_STEPS_IMPLEMENTATION.md) 🆕 **ACTIONABLE**
+**What**: Concrete implementation options to fix remaining failures
+- Why proxy rotation alone doesn't work (HTTP-level blocking)
+- 3 implementation approaches with effort estimates
+- Step-by-step implementation guides
+- Testing checklists for each option
+- File-by-file breakdown of changes needed
+
+**Read this when**: Ready to implement fixes for thehill.com / thebrakereport.com failures
+
+---
+
+### 2. [AUDIT_ISSUES_AND_SOLUTIONS.md](./AUDIT_ISSUES_AND_SOLUTIONS.md)
 **What**: Complete audit of all issues faced and solutions implemented
 - 7 major issues: ESM/CJS bundling, play button, screenshots, domains, proxy blocking, HTTP errors
 - Root cause analysis for each issue
@@ -22,7 +46,7 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ---
 
-### 1. [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
+### 3. [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 **What**: High-level system design
 - Component overview (API, Agent, Memory, Browser, Dashboard)
 - Data flow from job submission to completion
@@ -33,7 +57,7 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ---
 
-### 2. [SKILLS_REFERENCE.md](./SKILLS_REFERENCE.md)
+### 4. [SKILLS_REFERENCE.md](./SKILLS_REFERENCE.md)
 **What**: Complete skill documentation
 - What each of the 7 testing skills do
 - How they work & what they output
@@ -46,7 +70,7 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ---
 
-### 3. [SYSTEM_SYNC_EXPLAINED.md](./SYSTEM_SYNC_EXPLAINED.md) ⭐ **START HERE**
+### 5. [SYSTEM_SYNC_EXPLAINED.md](./SYSTEM_SYNC_EXPLAINED.md)
 **What**: Dashboard synchronization & verification
 - Why top panel shows different data than bottom
 - How "[Engineer] Planning" + "Skill Registry" are the same job
@@ -58,7 +82,7 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ---
 
-### 4. [DASHBOARD_TELEMETRY.md](./DASHBOARD_TELEMETRY.md)
+### 6. [DASHBOARD_TELEMETRY.md](./DASHBOARD_TELEMETRY.md)
 **What**: Dashboard UI complete guide
 - Mission Control panel explained
 - Swarm Specialist metrics (Senior Engineer, Discovery, Detection, Functional)
@@ -72,7 +96,7 @@ Your question: "Are these [dashboard sections] in sync? I'm not even understandi
 
 ---
 
-### 5. [API_REFERENCE.md](./API_REFERENCE.md)
+### 7. [API_REFERENCE.md](./API_REFERENCE.md)
 **What**: Complete API documentation
 - POST /api/jobs (submit test)
 - GET /api/jobs (list jobs)
@@ -279,11 +303,15 @@ pm2 start qa-agents
 
 ## 📖 Reading Order
 
-1. **First time?** → [SYSTEM_SYNC_EXPLAINED.md](./SYSTEM_SYNC_EXPLAINED.md)
-2. **Using dashboard?** → [DASHBOARD_TELEMETRY.md](./DASHBOARD_TELEMETRY.md)
-3. **Understanding agents?** → [SKILLS_REFERENCE.md](./SKILLS_REFERENCE.md)
-4. **Calling API?** → [API_REFERENCE.md](./API_REFERENCE.md)
-5. **Deep dive?** → [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
+**START HERE**:
+1. **Current status?** → [STATUS_REPORT.md](./STATUS_REPORT.md) ⭐ **READ THIS FIRST**
+2. **Need to fix something?** → [NEXT_STEPS_IMPLEMENTATION.md](./NEXT_STEPS_IMPLEMENTATION.md)
+
+Then:
+3. **Using dashboard?** → [DASHBOARD_TELEMETRY.md](./DASHBOARD_TELEMETRY.md)
+4. **Understanding agents?** → [SKILLS_REFERENCE.md](./SKILLS_REFERENCE.md)
+5. **Calling API?** → [API_REFERENCE.md](./API_REFERENCE.md)
+6. **Deep dive?** → [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
 
 ---
 
