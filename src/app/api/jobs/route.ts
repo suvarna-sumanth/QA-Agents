@@ -17,7 +17,7 @@ let cognitiveSystemCache: any = null;
 async function getCognitiveSystem() {
   if (cognitiveSystemCache) return cognitiveSystemCache;
   try {
-    const mod = await import('../../../../agents/core/index.js');
+    const mod = await import('../../../../agents/core/index.mjs');
     cognitiveSystemCache = mod.createCognitiveSystem();
     return cognitiveSystemCache;
   } catch (err) {
