@@ -10,13 +10,7 @@ export const dynamic = 'force-dynamic';
 
 import { supabase } from '../../../../agents/core/memory/supabase-client.js';
 import { existsSync } from 'fs';
-
-async function getCognitiveSystem() {
-  // Use the bootstrap-loader pattern which bypasses Webpack bundling
-  const { getCognitiveSystem: loadSystem } = await import('../../../lib/bootstrap-loader');
-  return await loadSystem();
-}
-
+import { getCognitiveSystem } from '../../../lib/bootstrap-loader';
 import { jobRegistry } from '@/lib/jobRegistry';
 
 async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string) {
