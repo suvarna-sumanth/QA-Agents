@@ -17,11 +17,20 @@ const browserStats = { launches: 0, reuses: 0 };
 
 export async function detectProtection(url) {
   // Simple head check - real detection happens in skills
-  return url.includes('thehill.com') ? 'perimeterx' : 'unknown';
+  // Map known domains to their protection types
+  if (url.includes('thehill.com')) return 'perimeterx';
+  if (url.includes('thebrakereport.com')) return 'cloudflare';
+
+  // For unknown domains, default to cloudflare as it's most common
+  // Real detection happens in skills via runtime checks
+  return 'cloudflare';
 }
 
 export async function launchForUrl(url) {
-  return launchUndetectedBrowser({ poolKey: url.includes('thehill.com') ? 'perimeterx' : 'default' });
+  // Launch appropriate stealth browser based on detected protection
+  const protection = await detectProtection(url);
+  const poolKey = protection === 'perimeterx' ? 'perimeterx' : 'cloudflare';
+  return launchUndetectedBrowser({ poolKey });
 }
 
 export async function launchUndetectedBrowser(opts = {}) {

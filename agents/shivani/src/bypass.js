@@ -315,9 +315,14 @@ async function detectChallenge(page) {
       return 'perimeterx-press-hold';
     }
 
-    // Cloudflare — multiple detection methods
+    // Cloudflare — multiple detection methods (catches many variants)
     const cfIframe = document.querySelector('iframe[src*="challenges.cloudflare.com"]');
     const cfIframeVisible = cfIframe && (cfIframe.offsetHeight > 0 || cfIframe.offsetWidth > 0);
+    const cfScript = document.querySelector('script[src*="challenges.cloudflare.com"]') || bodyHTML.includes('/cdn-cgi/challenge-platform');
+
+    // Also check for Cloudflare-specific elements and styles
+    const hasCFElements = document.querySelector('[id*="cf-"], [class*="cf-"], #challenge-form, #challenge-success');
+    const hasCFContent = bodyHTML.includes('cloudflare') || bodyHTML.includes('cdn-cgi') || bodyHTML.includes('challenge');
 
     if (
       title.includes('just a moment') ||
@@ -325,7 +330,9 @@ async function detectChallenge(page) {
       bodyText.includes('verify you are human') ||
       bodyText.includes('enable javascript') ||
       document.querySelector('#challenge-running, #cf-challenge-running, #challenge-stage') ||
-      cfIframeVisible
+      cfIframeVisible ||
+      cfScript ||
+      (hasCFElements && hasCFContent)
     ) {
       return 'cloudflare-turnstile';
     }
