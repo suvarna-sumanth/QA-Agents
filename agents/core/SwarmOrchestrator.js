@@ -22,6 +22,13 @@ export class SwarmOrchestrator extends Agent {
     };
     this.events.push(event);
     console.log(`[Swarm][${component}] ${message}`);
+
+    // Broadcast to live telemetry stream
+    try {
+      import('./Logger.js').then((mod) => {
+        mod.agentLogger.log(component, message, data.jobId);
+      }).catch(() => {});
+    } catch (e) {}
   }
 
   /**

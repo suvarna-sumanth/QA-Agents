@@ -31,6 +31,10 @@ const nextConfig = {
     ],
   },
   serverExternalPackages: ['playwright', 'playwright-core', 'chromium-bidi', 'rebrowser-playwright'],
+  devIndicators: {
+    buildActivity: false,
+    appIsrStatus: false,
+  },
 };
 
 export default nextConfig;

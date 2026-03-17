@@ -4,6 +4,12 @@
 
 ---
 
+### Bot Protection Edge Cases & Stability
+
+1.  **PerimeterX Cross-Origin Iframes**: Some sites (e.g., The Hill) encapsulate the "Press & Hold" challenge in a cross-origin iframe. Standard DOM inspection from the parent page fails. The system now uses iframe bounding-box targeting to bypass these challenges.
+2.  **Proxy Interference (407 Errors)**: When using residential proxies, local CDP (Chrome DevTools Protocol) connections can be accidentally intercepted. Hardening via `--proxy-bypass-list` and `NO_PROXY` is required to maintain inter-process communication stability.
+3.  **Cognitive Planning vs Swarm**: Small tasks use the Swarm (Shivani), while complex multi-step missions use the Senior Engineer (Cognitive Supervisor) which performs autonomous planning and self-correction.
+
 ## What Is This?
 
 **QA-Agents** is an automated QA testing platform that verifies `<instaread-player/>` audio player implementations across publisher websites. It navigates to article pages, detects the player, and runs a full functional test suite (play, pause, seek, speed control) — even when those sites are protected by Cloudflare or PerimeterX bot defenses.

@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic';
 function deriveProgress(currentStep: string | null): number {
   if (!currentStep) return 0;
   const s = (currentStep || '').toLowerCase();
-  if (s.includes('planning')) return 5;
-  if (s.includes('discover_articles')) return 15;
-  if (s.includes('detect_player')) return 35;
-  if (s.includes('test_player')) return 60;
-  if (s.includes('evaluating')) return 95;
+  if (s.includes('planning') || s.includes('strategic')) return 5;
+  if (s.includes('discover') || s.includes('exploration')) return 15;
+  if (s.includes('detect') || s.includes('availability')) return 35;
+  if (s.includes('test') || s.includes('functional')) return 70;
+  if (s.includes('evaluating') || s.includes('cognitive')) return 95;
   if (s.includes('expand')) return 25;
   return 50;
 }

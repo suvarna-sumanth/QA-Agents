@@ -44,9 +44,9 @@ async function capturePlayerScreenshot(page, screenshotDir, stepName, stepIndex)
       return null;
     }
 
-    // Scroll the iframe into view
+    // Scroll the iframe into view and wait for paint
     await iframeEl.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
 
     // Get iframe bounding box and take a screenshot of that region
     const boundingBox = await iframeEl.boundingBox();
@@ -58,9 +58,15 @@ async function capturePlayerScreenshot(page, screenshotDir, stepName, stepIndex)
     const screenshotName = `${stepIndex}-${stepName.replace(/\s+/g, '_').toLowerCase()}-player-${Date.now()}.png`;
     const screenshotPath = path.join(screenshotDir, screenshotName);
     
+    // Use a slightly larger clip or just ensure the coordinate is stable
     await page.screenshot({
       path: screenshotPath,
-      clip: boundingBox
+      clip: {
+        x: Math.max(0, boundingBox.x),
+        y: Math.max(0, boundingBox.y),
+        width: boundingBox.width,
+        height: boundingBox.height
+      }
     });
     console.log(`[Screenshot] ✓ Player captured: ${screenshotName}`);
     return screenshotPath;
@@ -111,7 +117,8 @@ export async function testPlayer(url, playerSelector = 'instaread-player', share
   if (isCloudflare || isTownNews) {
     // CLOUDFLARE & TOWNNEWS: Fresh context with stealth applied BEFORE navigation
     context = await browser.newContext({
-      userAgent: INSTAREAD_USER_AGENT
+      userAgent: INSTAREAD_USER_AGENT,
+      ignoreHTTPSErrors: true
     });
     await applyStealthScripts(context);
     page = await context.newPage();

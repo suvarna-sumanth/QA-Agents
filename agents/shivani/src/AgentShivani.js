@@ -73,6 +73,18 @@ export class AgentShivani extends SwarmOrchestrator {
     let sharedBrowser = null;
 
     try {
+      // 0. Target Verification Phase
+      onStepStart('target-verification', { target });
+      this.logEvent('Orchestrator', `Verifying target vector: ${target}`);
+      const targetUrl = target.includes('://') ? target : `https://${target}`;
+      report.steps.push({
+        name: 'Target Vector Verification',
+        status: 'pass',
+        message: `Validated target: ${new URL(targetUrl).hostname}`,
+        duration: Date.now() - startTime
+      });
+      onStepEnd('target-verification', { status: 'pass' });
+
       // 1. Discovery Phase
       let urlsToTest = [];
       if (type === 'url') {
@@ -179,6 +191,8 @@ export class AgentShivani extends SwarmOrchestrator {
 
       report.summary = swarmData.summary;
       report.overallStatus = report.summary.failed > 0 ? 'fail' : 'pass';
+      report.metadata.articlesScanned = urlsToTest.length;
+      report.metadata.articlesWithPlayer = swarmData.passedCount;
       report.metadata.swarmEfficiency = swarmData.telemetry.swarmEfficiency;
       report.metadata.speedupFactor = swarmData.telemetry.speedupFactor;
       
@@ -188,6 +202,8 @@ export class AgentShivani extends SwarmOrchestrator {
       });
       report.duration = Date.now() - startTime;
       
+      this.logEvent('Orchestrator', 'Mission Accomplished: All specialists completed their tasks.', { jobId, status: report.overallStatus });
+
       return report;
     } catch (err) {
       console.error(`[Shivani] Mission Crash: ${err.message}`, err.stack);

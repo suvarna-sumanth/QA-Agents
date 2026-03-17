@@ -37,7 +37,8 @@ export class BypassCloudflareSkill extends Skill {
     if (!context.sharedBrowser.page) {
       console.log('[BypassCloudflareSkill] Creating new stealth page...');
       const browserContext = await context.sharedBrowser.browser.newContext({
-        userAgent: INSTAREAD_USER_AGENT
+        userAgent: INSTAREAD_USER_AGENT,
+        ignoreHTTPSErrors: true
       });
       await applyStealthScripts(browserContext);
       context.sharedBrowser.page = await browserContext.newPage();

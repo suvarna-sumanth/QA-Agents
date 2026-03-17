@@ -24,14 +24,16 @@ export class TakeScreenshotSkill extends Skill {
   }
 
   async execute(input, context) {
-    const { screenshotName, screenshotDir, fullPage = true, selectorConfig = null } = input;
+    const { screenshotName, screenshotDir, fullPage = false, selectorConfig = null } = input;
 
     if (!context || !context.sharedBrowser || !context.sharedBrowser.page) {
       throw new Error('A browser page must be provided in the context.sharedBrowser.page');
     }
 
     const page = context.sharedBrowser.page;
-    const finalPath = path.join(screenshotDir, `${screenshotName}_${Date.now()}.png`);
+    const name = screenshotName || input.label || 'screenshot';
+    const finalDir = screenshotDir || path.resolve(process.cwd(), 'agents/shivani/screenshots');
+    const finalPath = path.join(finalDir, `${name}_${Date.now()}.png`);
 
     try {
       if (selectorConfig) {

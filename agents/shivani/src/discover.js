@@ -235,7 +235,8 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     if (protection === 'cloudflare' || protection === 'townnews') {
       // CLOUDFLARE & TOWNNEWS: Fresh context with full stealth applied BEFORE navigation
       context = await browser.newContext({
-        userAgent: INSTAREAD_USER_AGENT
+        userAgent: INSTAREAD_USER_AGENT,
+        ignoreHTTPSErrors: true
       });
       await applyStealthScripts(context);
       page = await context.newPage();
@@ -285,10 +286,14 @@ async function discoverFromHomepage(domain, baseUrl, maxArticles) {
     
     console.log(`[Discovery] Page: title="${pageDebug.title}", bodyLen=${pageDebug.bodyLength}, anchors=${pageDebug.anchorsWithHref}`);
 
-    // Try scrolling to trigger lazy-loading
+    // Try scrolling to trigger lazy-loading and reveal more articles
     try {
-      await page.evaluate(() => {
-        window.scrollBy(0, window.innerHeight);
+      console.log(`[Discovery] Scrolling to reveal more content...`);
+      await page.evaluate(async () => {
+        for (let i = 0; i < 3; i++) {
+          window.scrollBy(0, 1500);
+          await new Promise(r => setTimeout(r, 1000));
+        }
       });
       await page.waitForTimeout(2000);
     } catch (e) {

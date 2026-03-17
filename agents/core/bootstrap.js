@@ -6,6 +6,7 @@
 
 import { getRegistry } from './AgentRegistry.js';
 import AgentShivani from '../shivani/src/AgentShivani.js';
+import SeniorEngineerAgent from './SeniorEngineerAgent.js';
 import { cleanupBrowserPool } from '../shivani/src/browser.js';
 
 let bootstrapped = false;
@@ -58,6 +59,10 @@ export function bootstrapAgents() {
   const shivani = new AgentShivani();
   registry.register(shivani);
 
+  // Register Senior Engineer agent
+  const engineer = new SeniorEngineerAgent();
+  registry.register(engineer);
+
   // Register shutdown handlers for resource cleanup
   registerShutdownHandlers();
 
@@ -68,6 +73,7 @@ export function bootstrapAgents() {
     registry,
     agents: {
       shivani,
+      engineer,
     },
   };
 }

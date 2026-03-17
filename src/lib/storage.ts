@@ -133,6 +133,11 @@ class StorageService {
     const key = this.getScreenshotKey(agentId, jobId, stepNumber);
 
     try {
+      const { existsSync } = await import('fs');
+      if (!existsSync(filePath)) {
+        throw new Error(`Local file not found: ${filePath}`);
+      }
+
       const body = await readFile(filePath);
 
       const client = getS3Client();
@@ -166,6 +171,73 @@ class StorageService {
       const error = err instanceof Error ? err.message : 'Unknown error';
       throw new Error(`Failed to save screenshot to S3: ${error}`);
     }
+  }
+
+  /**
+   * Process a full report and upload all local screenshots to S3.
+   * Updates the report in-place with s3Key properties.
+   */
+  async syncReportScreenshots(agentId: string, jobId: string, report: any) {
+    const { existsSync } = await import('fs');
+    const uploaded = new Map<string, string>();
+    let stepIndex = 0;
+
+    // Handle both swarm reports (steps) and cognitive reports (results)
+    const steps = report.steps || [];
+    const results = report.results || [];
+
+    // Process flat steps (Shivani Swarm)
+    for (const step of steps) {
+      const localPath = step.screenshot;
+      if (!localPath || typeof localPath !== 'string') continue;
+      if (localPath.startsWith('s3://') || localPath.startsWith('http')) continue;
+      if (!existsSync(localPath)) continue;
+
+      if (uploaded.has(localPath)) {
+        step.s3Key = uploaded.get(localPath);
+        continue;
+      }
+
+      try {
+        const res = await this.saveScreenshot(agentId, jobId, localPath, stepIndex++);
+        step.s3Key = res.key;
+        uploaded.set(localPath, res.key);
+      } catch (err) {
+        console.warn(`[Storage] Skip upload failed: ${localPath}`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Process cognitive results
+    for (const result of results) {
+      // test_player: data.report.steps[].screenshot
+      const reportSteps = result.data?.report?.steps;
+      if (Array.isArray(reportSteps)) {
+        for (const step of reportSteps) {
+          const localPath = step.screenshot;
+          if (!localPath || !existsSync(localPath)) continue;
+          try {
+            const res = await this.saveScreenshot(agentId, jobId, localPath, stepIndex++);
+            step.s3Key = res.key;
+          } catch (e) {}
+        }
+      }
+      // other results
+      const innerResults = result.data?.results;
+      if (Array.isArray(innerResults)) {
+        for (const step of innerResults) {
+          const localPath = step.screenshot;
+          if (!localPath || !existsSync(localPath)) continue;
+          try {
+            const res = await this.saveScreenshot(agentId, jobId, localPath, stepIndex++);
+            step.s3Key = res.key;
+          } catch (e) {}
+        }
+      }
+    }
+
+    // Finally upload the report itself
+    await this.saveReport(agentId, jobId, report).catch(() => {});
+    return report;
   }
 
   /**

@@ -60,7 +60,8 @@ export async function detectPlayer(urls, sharedBrowser = null) {
     if (isCloudflare || isTownNews) {
       // CLOUDFLARE & TOWNNEWS: Fresh context with stealth applied BEFORE navigation
       context = await browser.newContext({
-        userAgent: INSTAREAD_USER_AGENT
+        userAgent: INSTAREAD_USER_AGENT,
+        ignoreHTTPSErrors: true
       });
       await applyStealthScripts(context);
     } else {
@@ -174,6 +175,12 @@ export async function detectPlayer(urls, sharedBrowser = null) {
             return { found: true, selector: 'instaread-player', attributes: attrs };
           }
 
+          // Fallback: Check for class-based markers
+          const slot = document.querySelector('.instaread-player-slot, #instaread-player-container');
+          if (slot) {
+            return { found: true, selector: '.instaread-player-slot', attributes: { class: slot.className } };
+          }
+
           // Shadow DOM check
           for (const el of document.querySelectorAll('*')) {
             if (el.shadowRoot) {
@@ -219,22 +226,44 @@ export async function detectPlayer(urls, sharedBrowser = null) {
           console.log(`[Detect] No player at ${url}`);
         }
 
+        let screenshot = null;
+        try {
+          const screenshotName = `detection_${Date.now()}.png`;
+          const screenshotDir = path.resolve(process.cwd(), 'agents/shivani/screenshots');
+          if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+          const screenshotPath = path.join(screenshotDir, screenshotName);
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+          screenshot = screenshotPath;
+        } catch (e) {}
+
         results.push({
           url,
           hasPlayer: detection.found,
           playerSelector: detection.selector,
           playerAttributes: detection.attributes,
           method: 'browser',
+          screenshot: screenshot
         });
       } catch (err) {
         console.log(`[Detect] Error on ${url}: ${err.message}`);
+        
+        let errorScreenshot = null;
+        try {
+          const screenshotName = `error_detect_${Date.now()}.png`;
+          const screenshotDir = path.resolve(process.cwd(), 'agents/shivani/screenshots');
+          if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+          const screenshotPath = path.join(screenshotDir, screenshotName);
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+          errorScreenshot = screenshotPath;
+        } catch (e) {}
+
         results.push({
           url,
           hasPlayer: false,
           playerSelector: null,
           playerAttributes: null,
           method: 'browser-error',
-          screenshot: null,
+          screenshot: errorScreenshot,
         });
       } finally {
         try {

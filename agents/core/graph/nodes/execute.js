@@ -16,7 +16,7 @@ export const executeNode = (skillRegistry) => async (state) => {
     'take_screenshot': 'Detection'
   };
 
-  const component = componentMap[step.skill] || 'Orchestrator';
+  const component = componentMap[step.skill] || 'Engineer';
   agentLogger.log(component, `Executing skill: ${step.skill}`, state.jobId);
   
   try {

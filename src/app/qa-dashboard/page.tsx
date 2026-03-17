@@ -92,6 +92,7 @@ export default function QADashboard() {
   const [telemetryConnected, setTelemetryConnected] = useState(false);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [runningJob, setRunningJob] = useState<{ jobId: string; target: string; currentStep: string | null; progress?: number } | null>(null);
+  const [activityLogs, setActivityLogs] = useState<Array<{ time: string, msg: string, type: string, timestamp: number }>>([]);
   const [recentLogs, setRecentLogs] = useState<Array<{ time: string; msg: string; type: string }>>([]);
 
   useEffect(() => {
@@ -104,11 +105,26 @@ export default function QADashboard() {
     if (supabase) {
       channel = supabase
         .channel('public:test_history')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'test_history' }, (payload: any) => {
-          console.log('[Realtime] Test history changed:', payload);
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'test_history' }, (payload: any) => {
+          console.log('[Realtime] New test result:', payload);
+          // Show browser notification if possible
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+             const row = payload.new;
+             new Notification('QA Mission Complete', {
+                body: `Target: ${row.url}\nStatus: ${row.overall_status?.toUpperCase()}`,
+                icon: '/favicon.ico'
+             });
+          }
           fetchDashboardData(); // Quick refresh when new data arrives
         })
         .subscribe();
+    }
+
+    // Request notification permission
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
     }
 
     return () => {
@@ -157,41 +173,52 @@ export default function QADashboard() {
     }
   }
 
-  // Real-time Telemetry for Deep Swarm Matrix
+  // Real-time Telemetry for Specialist Pulse & Dashboard Refresh
   useEffect(() => {
-    if (!showAdvanced) {
-      setTelemetryConnected(false);
-      setTelemetryError(null);
-      return;
-    }
-
     setTelemetryError(null);
     setTelemetryConnected(false);
-    console.log('[Telemetry] Connecting to Deep Swarm Matrix stream...');
+    
+    // Connect to global telemetry stream to track specialist activity even for CLI runs
     const eventSource = new EventSource('/api/agents/telemetry');
 
     eventSource.onmessage = (event) => {
       try {
-        const log = JSON.parse(event.data);
-        setAdvancedLogs(prev => [log, ...prev].slice(0, 50));
-        if (log.connected) setTelemetryConnected(true);
-      } catch (_) {
-        // Heartbeat or malformed
-      }
+        const data = JSON.parse(event.data);
+        const logEntry = { ...data, timestamp: Date.now() };
+        
+        // Always update shared activity for the pulse and indicators
+        setActivityLogs(prev => [logEntry, ...prev].slice(0, 20));
+        
+        if (showAdvanced) {
+          setAdvancedLogs(prev => [data, ...prev].slice(0, 50));
+        }
+        
+        // Auto-refresh reports when a mission completes
+        if (data.message?.includes('Mission Accomplished')) {
+           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+             new Notification('QA Mission Complete', {
+               body: `Swarm has finished the task for ${data.jobId || 'current mission'}`,
+             });
+           }
+           fetchDashboardData();
+        }
+
+        // Basic telemetry connectivity
+        if (data.connected) setTelemetryConnected(true);
+      } catch (_) {}
     };
 
     eventSource.onopen = () => {
+      setTelemetryConnected(true);
       setTelemetryError(null);
     };
 
     eventSource.onerror = () => {
       setTelemetryConnected(false);
-      setTelemetryError('Event stream disconnected. Run a job or retry.');
-      eventSource.close();
+      // setTelemetryError('Disconnected');
     };
 
     return () => {
-      console.log('[Telemetry] Disconnecting from stream');
       eventSource.close();
       setTelemetryConnected(false);
     };
@@ -233,6 +260,16 @@ export default function QADashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 p-8 pt-12 relative overflow-hidden">
+      <style jsx global>{`
+        #__next-build-watcher, 
+        .nextjs-static-indicator-root, 
+        [data-nextjs-toast], 
+        [data-nextjs-dialog] { 
+          display: none !important; 
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+      `}</style>
       {/* Decorative background pulse */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
@@ -242,7 +279,7 @@ export default function QADashboard() {
         <div>
           <div className="flex items-center gap-3 mb-2">
              <div className="p-2 bg-blue-600 rounded-lg shadow-[0_0_20px_rgba(37,99,235,0.3)]"><Zap className="w-6 h-6 text-white" /></div>
-             <h1 className="text-4xl font-black text-white uppercase tracking-tighter">Mission Dashboard</h1>
+              <h1 className="text-4xl font-black text-white uppercase tracking-tighter">Mission Control v2.2</h1>
           </div>
           <p className="text-slate-400 font-medium max-w-lg">
             Real-time telemetry and autonomous specialist coordination for global QA missions.
@@ -451,16 +488,21 @@ export default function QADashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 relative z-10">
             {(() => {
                 const step = (runningJob?.currentStep || '').toLowerCase();
-                const discoveryBusy = step.includes('discover');
-                const detectionBusy = step.includes('detect_player');
-                const functionalBusy = step.includes('test_player');
-                const orchestratorBusy = !!runningJob && (step.includes('planning') || step.includes('evaluating') || step.includes('expand') || discoveryBusy || detectionBusy || functionalBusy);
+                const isRunning = runningJob || activityLogs.some(l => {
+                  const isCompletionMsg = (l.msg || '').includes('Mission Accomplished');
+                  return !isCompletionMsg && (Date.now() - (l.timestamp || 0) < 60000); 
+                });
+                const latestLog = activityLogs[0];
+                const discoveryBusy = isRunning && (latestLog?.type === 'Discovery' || (latestLog?.msg || '').toLowerCase().includes('discovery'));
+                const detectionBusy = isRunning && (latestLog?.type === 'Detection' || (latestLog?.msg || '').toLowerCase().includes('detection'));
+                const functionalBusy = isRunning && (latestLog?.type === 'Functional' || (latestLog?.msg || '').toLowerCase().includes('functional') || (latestLog?.msg || '').toLowerCase().includes('test'));
+                const orchestratorBusy = isRunning && (latestLog?.type === 'Orchestrator' || latestLog?.type === 'Engineer' || (latestLog?.msg || '').toLowerCase().includes('orchestra')) || (!!runningJob && (step.includes('planning') || step.includes('evaluating') || step.includes('expand') || discoveryBusy || detectionBusy || functionalBusy));
                 const missionProgress = runningJob?.progress ?? 0;
               
               const nodes = [
                 { 
-                  name: 'Orchestrator', 
-                  icon: <Cpu />, 
+                  name: 'Senior Engineer', 
+                  icon: <ShieldCheck />, 
                   status: orchestratorBusy ? 'BUSY' : 'IDLE', 
                   util: orchestratorBusy ? Math.max(12, missionProgress) : 12, 
                   color: 'blue' 
@@ -513,11 +555,11 @@ export default function QADashboard() {
 
         {/* Global Mission Control Logs */}
         <div className="bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-2xl flex flex-col h-full">
-           <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                 <div className="p-1.5 bg-indigo-500/20 rounded-lg"><Terminal className="w-5 h-5 text-indigo-400" /></div>
-                 <h2 className="text-lg font-black text-white uppercase tracking-tight">Mission Control</h2>
-              </div>
+           <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-lg border border-indigo-500/20"><Activity className="w-5 h-5 text-indigo-400" /></div>
+              <h2 className="text-xl font-black text-white uppercase tracking-tight">Mission Command Registry</h2>
+            </div>
               <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-500/10 rounded-full border border-indigo-500/20">
                  <div className="w-1 h-1 rounded-full bg-indigo-400 animate-pulse"></div>
                  <span className="text-[8px] font-bold text-indigo-300 uppercase tracking-widest">Live Flow</span>
@@ -539,7 +581,7 @@ export default function QADashboard() {
                    <div key={i} className="flex gap-3 text-[10px] items-start group/log border-l border-white/5 pl-3 hover:border-blue-500/50 transition-colors">
                       <span className="text-slate-600 font-mono shrink-0">[{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]</span>
                       <div>
-                         <span className="text-blue-400 font-bold mr-2 uppercase">[{log.name.includes('discover') ? 'Discovery' : log.name.includes('detect') ? 'Detection' : 'Specialist'}]</span>
+                         <span className="text-blue-400 font-bold mr-2 uppercase">[{log.name.toLowerCase().includes('discover') ? 'Discovery' : log.name.toLowerCase().includes('detect') ? 'Detection' : (log.name.toLowerCase().includes('strategic') || log.name.toLowerCase().includes('plan')) ? 'Engineer' : 'Specialist'}]</span>
                          <span className="text-slate-300 group-hover/log:text-white transition-colors">{log.message}</span>
                          <p className="text-[8px] text-slate-600 mt-0.5 font-bold uppercase tracking-widest">{log.target.replace('https://', '')}</p>
                       </div>
@@ -711,14 +753,15 @@ export default function QADashboard() {
                       <div className="flex items-center gap-2">
                         {getStatusIcon(report.overallStatus)}
                         <span
-                          className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tight border ${getStatusColor(report.overallStatus)}`}
+                          className={`inline-block px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tight border ${getStatusColor(report.overallStatus)} ${report.overallStatus === 'partial' ? 'animate-pulse' : ''}`}
                         >
-                          {report.statusLabel}
+                          {report.overallStatus === 'partial' ? 'IN PROGRESS' : report.statusLabel}
                         </span>
                       </div>
-                      {report.overallStatus === 'partial' && report.metadata?.currentStep && (
-                        <div className="mt-2 text-[10px] font-mono text-blue-400 animate-pulse truncate max-w-[150px]">
-                          {report.metadata.currentStep}
+                      {report.overallStatus === 'partial' && (
+                        <div className="mt-2 text-[10px] font-mono text-blue-400 flex items-center gap-2 truncate max-w-[180px]">
+                          <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce shrink-0"></div>
+                          {report.metadata?.currentTask || report.metadata?.currentStep || 'Initializing especialista...'}
                         </div>
                       )}
                     </td>
@@ -750,7 +793,7 @@ export default function QADashboard() {
                     </td>
                     <td className="px-8 py-6">
                       <div className="flex items-center -space-x-1.5">
-                         <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center" title="Orchestrator"><Cpu className="w-3 h-3 text-blue-400" /></div>
+                         <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center" title="Senior Engineer"><ShieldCheck className="w-3 h-3 text-blue-400" /></div>
                          <div className="w-6 h-6 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center" title="Discovery"><Search className="w-3 h-3 text-indigo-400" /></div>
                          <div className="w-6 h-6 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center" title="Detection"><Eye className="w-3 h-3 text-violet-400" /></div>
                          <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center" title="Functional"><Settings className="w-3 h-3 text-emerald-400" /></div>

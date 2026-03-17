@@ -133,6 +133,36 @@ async function run() {
   // Save report to filesystem
   saveReport(report);
 
+  // Persistence to Supabase & S3
+  try {
+    const { MemoryService } = await import('../../core/memory/MemoryService.js');
+    const memory = new MemoryService();
+    
+    // Upload screenshots to S3 if configured
+    try {
+      const { storage } = await import('../../core/storage.js');
+      console.log(`[Storage] Syncing screenshots to S3...`);
+      await storage.syncReportScreenshots(report.agentId, report.jobId, report);
+    } catch (s3Err) {
+      console.warn(`[Storage] ⚠️  S3 Sync skipped: ${s3Err.message}`);
+    }
+
+    console.log(`[Memory] Persisting job ${report.jobId} to database...`);
+    
+    // Format for TestHistoryStore
+    const dbResult = {
+      overallStatus: report.overallStatus,
+      results: report.steps, 
+      totalDuration: report.duration,
+      summary: report.summary
+    };
+    
+    await memory.recordTestResult(report.jobId, report.target, dbResult);
+    console.log(`[Memory] ✓ Success: Job recorded in cloud history`);
+  } catch (err) {
+    console.warn(`[Memory] ⚠️  Persistence failed: ${err.message}`);
+  }
+
   console.log('\n' + '═'.repeat(70));
   console.log('  FINAL SUMMARY');
   console.log('═'.repeat(70));

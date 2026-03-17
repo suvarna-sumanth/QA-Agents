@@ -75,11 +75,15 @@ export class DetectPlayerSkill extends Skill {
       let browserContext, page;
       if (isCloudflare || isTownNews) {
         browserContext = await browser.newContext({
-          userAgent: INSTAREAD_USER_AGENT
+          userAgent: INSTAREAD_USER_AGENT,
+          ignoreHTTPSErrors: true
         });
         await applyStealthScripts(browserContext);
       } else {
-        browserContext = browser.contexts()[0] || await browser.newContext({ userAgent: INSTAREAD_USER_AGENT });
+        browserContext = browser.contexts()[0] || await browser.newContext({ 
+          userAgent: INSTAREAD_USER_AGENT,
+          ignoreHTTPSErrors: true
+        });
       }
       if (context?.discoveryCookies?.length && isCloudflare) {
         try {
@@ -239,21 +243,44 @@ export class DetectPlayerSkill extends Skill {
             console.log(`[DetectPlayerSkill] No player at ${url}`);
           }
 
+          let screenshot = null;
+          try {
+            const screenshotName = `detect_skill_${Date.now()}.png`;
+            const screenshotDir = path.resolve(process.cwd(), 'agents/shivani/screenshots');
+            if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+            const screenshotPath = path.join(screenshotDir, screenshotName);
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            screenshot = screenshotPath;
+          } catch (e) {}
+
           results.push({
             url,
             hasPlayer: detection.found,
             playerSelector: detection.selector,
             playerAttributes: detection.attributes,
             method: 'browser',
+            screenshot: screenshot
           });
         } catch (err) {
           console.log(`[DetectPlayerSkill] Error on ${url}: ${err.message}`);
+          
+          let errorScreenshot = null;
+          try {
+            const screenshotName = `error_detect_skill_${Date.now()}.png`;
+            const screenshotDir = path.resolve(process.cwd(), 'agents/shivani/screenshots');
+            if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+            const screenshotPath = path.join(screenshotDir, screenshotName);
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+            errorScreenshot = screenshotPath;
+          } catch (e) {}
+
           results.push({
             url,
             hasPlayer: false,
             playerSelector: null,
             playerAttributes: null,
             method: 'browser-error',
+            screenshot: errorScreenshot
           });
         } finally {
           try {

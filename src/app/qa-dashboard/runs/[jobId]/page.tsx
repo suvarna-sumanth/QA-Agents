@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Loader, CheckCircle, XCircle, AlertCircle, Sparkles, Image as ImageIcon, Zap, Activity, Search, Eye, Settings, Cpu } from 'lucide-react';
+import { ChevronLeft, Loader, CheckCircle, XCircle, AlertCircle, Sparkles, Image as ImageIcon, Zap, Activity, Search, Eye, Settings, Cpu, ShieldCheck } from 'lucide-react';
 
 interface NormalizedStep {
   id: string;
@@ -328,13 +328,13 @@ export default function RunDetailsPage({
                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
                               <div className="relative group">
                                 <div className="absolute inset-0 bg-blue-500 rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-opacity animate-pulse"></div>
-                                <div className="w-24 h-24 bg-slate-900 rounded-full border-2 border-blue-500 flex items-center justify-center relative z-10 shadow-2xl">
-                                   <Cpu className="w-10 h-10 text-blue-400" />
-                                </div>
-                                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-max">
-                                   <p className="text-[10px] font-black text-white uppercase tracking-widest text-center">CORE SYSTEM</p>
-                                   <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest text-center">v2.1 Master</p>
-                                </div>
+                                 <div className="w-24 h-24 bg-slate-900 rounded-full border-2 border-blue-500 flex items-center justify-center relative z-10 shadow-2xl">
+                                    <ShieldCheck className="w-10 h-10 text-blue-400" />
+                                 </div>
+                                 <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 w-max">
+                                    <p className="text-[10px] font-black text-white uppercase tracking-widest text-center">Senior Engineer</p>
+                                    <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest text-center">Cognitive Lead v1.5</p>
+                                 </div>
                               </div>
                            </div>
 
@@ -367,7 +367,7 @@ export default function RunDetailsPage({
                              {report.metadata.swarmEvents.map((event: any, idx: number) => (
                                <div key={idx} className="flex gap-3 text-[11px] group/log">
                                  <span className="text-slate-600 shrink-0">[{new Date(event.timestamp).toLocaleTimeString()}]</span>
-                                 <span className="text-blue-400 shrink-0">[{event.component}]</span>
+                                 <span className="text-blue-400 shrink-0">[{event.component === 'Orchestrator' ? 'Engineer' : event.component}]</span>
                                  <span className="text-slate-300 group-hover/log:text-white transition-colors">{event.message}</span>
                                </div>
                              ))}

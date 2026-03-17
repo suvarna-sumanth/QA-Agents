@@ -1,7 +1,7 @@
 import { agentLogger } from '../../Logger.js';
 
 export const planNode = (memoryService) => async (state) => {
-  agentLogger.log('Orchestrator', `Planning execution for ${state.url}`, state.jobId);
+  agentLogger.log('Engineer', `Planning execution for ${state.url}`, state.jobId);
   
   // Recall knowledge about this domain (memory layer — agent is aware of past runs)
   const profile = await memoryService.recallSiteProfile(state.domain);
@@ -31,7 +31,7 @@ export const planNode = (memoryService) => async (state) => {
     
     plan.push({ skill: 'detect_player', input: { urls: [state.url] } });
     plan.push({ skill: 'test_player', input: { url: state.url } });
-    plan.push({ skill: 'take_screenshot', input: { label: 'final_state' } });
+    plan.push({ skill: 'take_screenshot', input: { screenshotName: 'final_state' } });
   }
 
   console.log(`[Supervisor:Plan] Created plan with ${plan.length} steps: ${plan.map(p => p.skill).join(' -> ')}`);

@@ -13,7 +13,20 @@ import { spawn } from 'child_process';
 import path from 'path';
 import net from 'net';
 import fs from 'fs';
+import os from 'os';
 import { INSTAREAD_USER_AGENT } from './config.js';
+
+// Global SSL ignore for residential proxy compatibility
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// Set global NO_PROXY to ensure local CDP connections are not intercepted
+process.env.NO_PROXY = '127.0.0.1,localhost';
+process.env.no_proxy = '127.0.0.1,localhost';
+
+// Set global DISPLAY for headed browsers on EC2
+if (!process.env.DISPLAY) {
+  process.env.DISPLAY = ':99';
+}
 
 // Cache protection type per domain
 const domainProtectionCache = new Map();
@@ -180,14 +193,31 @@ async function launchCloudflareSimple() {
 
   console.log(`[Browser] Launching new ${poolKey} browser instance (Playwright)...`);
   browserStats.launches++;
+  
   const launchOpts = {
     headless: false,
     args: [
       '--disable-blink-features=AutomationControlled',
       '--no-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--memory-pressure-thresholds=1',
+      '--disable-canvas-aa',
+      '--disable-2d-canvas-clip-utils',
+      '--disable-gl-drawing-for-tests'
     ],
   };
+
+  // Add residential proxy if configured
+  if (process.env.RESIDENTIAL_PROXY) {
+    const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
+    launchOpts.proxy = {
+      server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+      username: proxyUrl.username,
+      password: proxyUrl.password,
+    };
+  }
+
   let browser;
   try {
     browser = await regularChromium.launch({ ...launchOpts, channel: 'chrome' });
@@ -296,7 +326,24 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
   const profileId = Math.random().toString(36).substring(2, 10);
   const userDataDir = path.resolve(process.cwd(), 'agents/shivani', `.chrome-profile-${profileId}`);
 
-  const chromeProcess = spawn('google-chrome', [
+  // Determine chrome binary path
+  let chromePath = 'google-chrome';
+  const commonPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    path.join(os.homedir(), '.cache/ms-playwright/chromium-1208/chrome-linux64/chrome'),
+    path.join(os.homedir(), '.cache/ms-playwright/chromium-1210/chrome-linux64/chrome'),
+  ];
+
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) {
+      chromePath = p;
+      break;
+    }
+  }
+
+  const args = [
     `--remote-debugging-port=${port}`,
     '--no-first-run',
     '--no-default-browser-check',
@@ -309,29 +356,66 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
     `--user-data-dir=${userDataDir}`,
     '--window-size=1280,800',
     `--user-agent=${INSTAREAD_USER_AGENT}`,
-    // Disable dev-shm which can cause issues in some environments
     '--disable-dev-shm-usage',
-    // Disable GPU to avoid rendering issues
     '--disable-gpu',
-    // Keep process separation for stability
     '--disable-web-resources',
-    // Cloudflare specific: disable features that reveal headless
     '--disable-features=TranslateUI,IsolateOrigins,site-per-process',
+    '--memory-pressure-thresholds=1',
+    '--disable-canvas-aa',
+    '--disable-2d-canvas-clip-utils',
+    '--disable-gl-drawing-for-tests',
     'about:blank',
-  ], {
-    stdio: 'ignore',
+  ];
+
+  // Add residential proxy if configured
+  if (process.env.RESIDENTIAL_PROXY) {
+    const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
+    // Chrome format: --proxy-server="http://host:port"
+    // Authentication is handled via page.authenticate() later or via环境变量
+    args.push(`--proxy-server=${proxyUrl.protocol}//${proxyUrl.host}`);
+    args.push('--proxy-bypass-list=127.0.0.1;localhost;<-loopback>');
+  }
+
+  const chromeProcess = spawn(chromePath, args, {
+    stdio: 'pipe', // Capture output
     detached: false,
+    env: {
+      ...process.env,
+      DISPLAY: process.env.DISPLAY || ':99',
+      NO_PROXY: '127.0.0.1,localhost',
+    }
   });
+
+  // Log chrome output for debugging
+  chromeProcess.stdout.on('data', (data) => console.log(`[Chrome] ${data}`));
+  chromeProcess.stderr.on('data', (data) => console.error(`[Chrome Error] ${data}`));
 
   const chromiumAPI = useRebrowser ? rebrowserChromium : regularChromium;
 
+  // Ensure internal connections bypass any global proxies
+  const connectEnv = { ...process.env, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' };
+
   for (let i = 0; i < 120; i++) {
-    try {
-      const browser = await chromiumAPI.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 2000 });
+      try {
+        const browser = await chromiumAPI.connectOverCDP(`http://127.0.0.1:${port}`, { 
+          timeout: 10000,
+          env: connectEnv,
+        });
+        console.log(`[Browser] Connected to CDP on port ${port}`);
 
       const context = browser.contexts()[0];
       if (context) {
         await applyStealthScripts(context);
+        
+        // Handle residential proxy authentication if configured
+        if (process.env.RESIDENTIAL_PROXY) {
+          const proxyUrl = new URL(process.env.RESIDENTIAL_PROXY);
+          if (proxyUrl.username && proxyUrl.password) {
+            await context.setExtraHTTPHeaders({
+              'Proxy-Authorization': 'Basic ' + Buffer.from(`${proxyUrl.username}:${proxyUrl.password}`).toString('base64')
+            });
+          }
+        }
       }
 
       // Store in pool if reusable — including chromeProcess and userDataDir for cleanup
@@ -351,9 +435,10 @@ export async function launchUndetectedBrowser({ useRebrowser = true, reusable = 
       };
 
       return { browser, cleanup, reused: false };
-    } catch (err) {
-      await new Promise(r => setTimeout(r, 500));
-    }
+      } catch (err) {
+        if (i % 10 === 0) console.log(`[Browser] Connection attempt ${i} failed: ${err.message}`);
+        await new Promise(r => setTimeout(r, 500));
+      }
   }
 
   chromeProcess.kill();

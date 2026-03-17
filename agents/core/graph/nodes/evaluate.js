@@ -4,7 +4,7 @@ import { agentLogger } from '../../Logger.js';
  * The Evaluate node reviews the execution and saves results to memory.
  */
 export const evaluateNode = (memoryService) => async (state) => {
-  agentLogger.log('Orchestrator', `Evaluating mission results for ${state.url}`, state.jobId);
+  agentLogger.log('Engineer', `Evaluating mission results for ${state.url}`, state.jobId);
   
   const hasErrors = state.results.some(r => r.status === 'error');
   // Only use successful detect_player results (failed runs have no data and would overwrite good profile)

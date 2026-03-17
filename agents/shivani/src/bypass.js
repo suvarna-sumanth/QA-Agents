@@ -398,19 +398,19 @@ async function handlePressAndHold(page) {
     console.log(`[Bypass] Text detection failed: ${err.message}`);
   }
 
-  // Strategy 3: Look for other captcha-like elements
+  // Strategy 3: Look for captcha iframes
   try {
-    const captchaLike = await page.$('[class*="captcha"], [id*="captcha"], [class*="challenge"]');
-    if (captchaLike) {
-      const box = await captchaLike.boundingBox();
-      if (box && box.width > 0 && box.height > 0) {
-        console.log(`[Bypass] Found captcha-like element, pressing on it`);
+    const cf = await page.$('iframe[src*="captcha"], iframe[id*="px-captcha"]');
+    if (cf) {
+      const box = await cf.boundingBox();
+      if (box && box.width > 50 && box.height > 50) {
+        console.log(`[Bypass] Found captcha iframe, pressing at center: (${box.x + box.width / 2}, ${box.y + box.height / 2})`);
         await pressAndHoldAt(page, box.x + box.width / 2, box.y + box.height / 2);
         return;
       }
     }
   } catch (err) {
-    console.log(`[Bypass] Captcha-like detection failed: ${err.message}`);
+    console.log(`[Bypass] Iframe detection failed: ${err.message}`);
   }
 
   // Strategy 4: Center of the visible challenge area (fallback)

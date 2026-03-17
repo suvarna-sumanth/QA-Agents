@@ -42,7 +42,9 @@ export default function JobSubmissionPage() {
       const data = await res.json();
       setAgents(data.agents);
       if (data.agents.length > 0) {
-        setFormData((prev) => ({ ...prev, agentId: data.agents[0].id }));
+        // Prefer Senior Engineer for autonomous architect missions
+        const senior = data.agents.find((a: any) => a.id === 'agent-senior-engineer');
+        setFormData((prev) => ({ ...prev, agentId: senior ? senior.id : data.agents[0].id }));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents');

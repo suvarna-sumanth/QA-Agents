@@ -35,7 +35,7 @@ export class TestPlayerSkill extends Skill {
   async captureFullPageScreenshot(page, screenshotDir, stepName, stepIndex) {
     try {
       if (!screenshotDir) return null;
-      const screenshotName = `${stepIndex}-${stepName.replace(/\\s+/g, '_').toLowerCase()}-full-${Date.now()}.png`;
+      const screenshotName = `${stepIndex}-${stepName.replace(/\s+/g, '_').toLowerCase()}-full-${Date.now()}.png`;
       const screenshotPath = path.join(screenshotDir, screenshotName);
       await page.screenshot({ path: screenshotPath, fullPage: true });
       console.log(`[TestPlayerSkill] ✓ Full page captured: ${screenshotName}`);
@@ -59,7 +59,7 @@ export class TestPlayerSkill extends Skill {
       }
 
       await iframeEl.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(600);
 
       const boundingBox = await iframeEl.boundingBox();
       if (!boundingBox) {
@@ -67,12 +67,17 @@ export class TestPlayerSkill extends Skill {
         return null;
       }
 
-      const screenshotName = `${stepIndex}-${stepName.replace(/\\s+/g, '_').toLowerCase()}-player-${Date.now()}.png`;
+      const screenshotName = `${stepIndex}-${stepName.replace(/\s+/g, '_').toLowerCase()}-player-${Date.now()}.png`;
       const screenshotPath = path.join(screenshotDir, screenshotName);
       
       await page.screenshot({
         path: screenshotPath,
-        clip: boundingBox
+        clip: {
+          x: Math.max(0, boundingBox.x),
+          y: Math.max(0, boundingBox.y),
+          width: boundingBox.width,
+          height: boundingBox.height
+        }
       });
       console.log(`[TestPlayerSkill] ✓ Player captured: ${screenshotName}`);
       return screenshotPath;
@@ -142,7 +147,8 @@ export class TestPlayerSkill extends Skill {
         console.log(`[TestPlayerSkill] Reusing shared stealth page...`);
       } else {
         browserContext = await browser.newContext({
-          userAgent: INSTAREAD_USER_AGENT
+          userAgent: INSTAREAD_USER_AGENT,
+          ignoreHTTPSErrors: true
         });
         await applyStealthScripts(browserContext);
         page = await browserContext.newPage();
@@ -153,7 +159,10 @@ export class TestPlayerSkill extends Skill {
         page = sharedPage;
         console.log(`[TestPlayerSkill] Reusing shared regular page...`);
       } else {
-        browserContext = browser.contexts()[0] || await browser.newContext({ userAgent: INSTAREAD_USER_AGENT });
+        browserContext = browser.contexts()[0] || await browser.newContext({ 
+          userAgent: INSTAREAD_USER_AGENT,
+          ignoreHTTPSErrors: true
+        });
         page = await browserContext.newPage();
       }
     }
@@ -245,6 +254,11 @@ export class TestPlayerSkill extends Skill {
           duration: Date.now() - step1Start,
         });
       } catch (err) {
+        if (!initialScreenshot && page) {
+          try {
+            initialScreenshot = await this.captureFullPageScreenshot(page, screenshotDir, 'page_load_error', stepCounter++);
+          } catch (e) {}
+        }
         steps.push({
           name: 'Page Load',
           status: 'fail',

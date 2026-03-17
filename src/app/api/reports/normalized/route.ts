@@ -23,38 +23,9 @@ export async function GET(request: Request) {
     const statusFilter = url.searchParams.get('status');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
 
-    const jobs = Array.from(jobRegistry.values());
- 
-    // Include all jobs from memory to show real-time progress
-    const memoryJobsFiltered = agentFilter ? jobs.filter((j: any) => j.agentId === agentFilter) : jobs;
-
-    // Normalize memory jobs
-    let reports = adaptJobsToNormalizedReports(memoryJobsFiltered.filter((j: any) => j.status === 'completed' && j.report));
+    let reports: any[] = [];
     
-    // Add running/queued jobs as partial reports
-    const activeJobs = memoryJobsFiltered.filter((j: any) => j.status === 'running' || j.status === 'queued');
-    const { normalizeReport } = await import('@/lib/reportNormalizer');
-
-    for (const job of activeJobs as any[]) {
-      const mockRaw: any = {
-        jobId: job.jobId,
-        agentId: job.agentId,
-        target: job.target,
-        type: job.type,
-        timestamp: job.createdAt,
-        overallStatus: job.status === 'running' ? 'partial' : 'skip',
-        summary: { passed: 0, partial: 0, failed: 0, skipped: 0, total: 0 },
-        steps: [],
-        metadata: { 
-          swarmActive: true, 
-          statusLabel: job.status === 'running' ? 'Running' : 'Queued',
-          currentStep: job.currentStep
-        }
-      };
-      reports.push(normalizeReport(mockRaw));
-    }
-
-    // Fetch from Supabase (Primary Persistence)
+    // 1. Fetch from Supabase (Primary Persistence) - Get latest confirmed results
     try {
       const { supabase } = await import('../../../../../agents/core/memory/supabase-client.js');
       if (supabase) {
@@ -71,10 +42,8 @@ export async function GET(request: Request) {
         const { data: dbRows, error } = await query;
         
         if (!error && dbRows) {
+          const { normalizeReport } = await import('@/lib/reportNormalizer');
           for (const row of dbRows) {
-            // Avoid duplicates with memory
-            if (reports.some(r => r.jobId === row.job_id)) continue;
-            
             reports.push(normalizeReport(row));
           }
         }
@@ -83,31 +52,77 @@ export async function GET(request: Request) {
       console.warn('[API] Supabase fetch failed in normalized route:', err);
     }
 
-    // Fetch from S3 storage if available as secondary fallback
-    try {
-      const { getStorage } = await import('@/lib/storage');
-      const storage = getStorage();
-      const agentsToCheck = agentFilter ? [agentFilter] : ['agent-shivani'];
-      
-      for (const agId of agentsToCheck) {
-        const storedReports = await storage.listReports(agId, limit);
-        if (storedReports && storedReports.length > 0) {
-          for (const r of storedReports) {
-            if (reports.some(existing => existing.jobId === r.jobId)) continue;
-            try {
-              reports.push(normalizeReport(r as any));
-            } catch (e) {}
-          }
-        }
-      }
-    } catch (err) {}
+    // 2. Add jobs from memory (Real-time / Recent)
+    const jobs = Array.from(jobRegistry.values());
+    const memoryJobsFiltered = agentFilter ? jobs.filter((j: any) => j.agentId === agentFilter) : jobs;
 
-    // Apply status filter
-    if (statusFilter) {
-      reports = filterReportsByStatus(reports, statusFilter);
+    // Filter memory jobs to only include ones from the last 24 hours to avoid stale "thehill.com" data
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const recentMemoryJobs = memoryJobsFiltered.filter((j: any) => {
+      const createdAt = new Date(j.createdAt || 0).getTime();
+      return createdAt > oneDayAgo;
+    });
+
+    // Add completed jobs from memory that aren't in Supabase yet
+    const completedMemoryReports = adaptJobsToNormalizedReports(recentMemoryJobs.filter((j: any) => j.status === 'completed' && j.report));
+    for (const r of completedMemoryReports) {
+      if (!reports.some(existing => existing.jobId === r.jobId)) {
+        reports.push(r);
+      }
+    }
+    
+    // 3. Add running/queued jobs as partial reports for "What agent is doing" feedback
+    const activeJobs = recentMemoryJobs.filter((j: any) => j.status === 'running' || j.status === 'queued');
+    const { normalizeReport } = await import('@/lib/reportNormalizer');
+
+    for (const job of activeJobs as any[]) {
+      if (reports.some(r => r.jobId === job.jobId)) continue;
+      
+      const mockRaw: any = {
+        jobId: job.jobId,
+        agentId: job.agentId,
+        target: job.target,
+        type: job.type,
+        timestamp: job.createdAt || new Date().toISOString(),
+        overallStatus: job.status === 'running' ? 'partial' : 'skip',
+        summary: { passed: 0, partial: 0, failed: 0, skipped: 0, total: 0 },
+        steps: [],
+        metadata: { 
+          swarmActive: true, 
+          statusLabel: job.status === 'running' ? 'Running' : 'Queued',
+          currentStep: job.currentStep
+        }
+      };
+      reports.push(normalizeReport(mockRaw));
     }
 
-    // Sort by timestamp (newest first)
+    // 4. Fetch from S3 storage if available as secondary fallback
+    if (reports.length < limit) {
+      try {
+        const { getStorage } = await import('@/lib/storage');
+        const storage = getStorage();
+        const agentsToCheck = agentFilter ? [agentFilter] : ['agent-shivani'];
+        
+        for (const agId of agentsToCheck) {
+          const storedReports = await storage.listReports(agId, limit);
+          if (storedReports && storedReports.length > 0) {
+            for (const r of storedReports) {
+              if (reports.some(existing => existing.jobId === r.jobId)) continue;
+              try {
+                reports.push(normalizeReport(r as any));
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (err) {}
+    }
+
+    // Apply status filter to combined results
+    if (statusFilter) {
+      reports = reports.filter(r => r.overallStatus === statusFilter);
+    }
+
+    // Final Sort: Always newest first
     reports = reports.sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );

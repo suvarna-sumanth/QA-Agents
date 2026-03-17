@@ -48,3 +48,15 @@
     @apply font-code;
   }
 }
+
+/* DE-BRANDING: Hide Next.js Dev/Static Indicators for Senior Engineer Setup */
+#__next-build-watcher, 
+.nextjs-static-indicator-root, 
+[data-nextjs-toast], 
+[data-nextjs-dialog],
+#nextjs-dev-overlay { 
+  display: none !important; 
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

@@ -135,10 +135,9 @@ export async function POST(request: Request) {
 
       let unsubscribe: any;
       try {
-        console.log(`[API] Dispatching ${target} to Cognitive Supervisor`);
-        
-        // Dynamically load the agent and logger
-        const { supervisor } = await getCognitiveSystem();
+        // Dynamically load the agent registry and logger
+        const { bootstrapAgents } = await import('../../../lib/bootstrap-loader');
+        const { registry } = await bootstrapAgents();
         const { agentLogger } = await import('../../../../agents/core/Logger.js');
 
         // Subscribe local registry to live updates
@@ -155,8 +154,26 @@ export async function POST(request: Request) {
           }
         });
 
-        // The Cognitive Agent handles its own state graph (config.maxArticles = Mission Payload Depth)
-        const finalState = await supervisor.run(jobId, target, null, null, config);
+        let finalState;
+        const requestedAgent = registry.getAgent(agentId);
+        
+        if (requestedAgent && typeof requestedAgent.runJob === 'function') {
+           console.log(`[API] Using registered agent: ${requestedAgent.name}`);
+           finalState = await requestedAgent.runJob({ 
+             jobId, 
+             type, 
+             target, 
+             config,
+             // Map callbacks if the agent supports them
+             onStepStart: (name: string, meta: any) => {},
+             onStepEnd: (name: string, res: any) => {}
+           });
+        } else {
+           console.log(`[API] Falling back to default Cognitive Supervisor`);
+           // The Cognitive Agent handles its own state graph (config.maxArticles = Mission Payload Depth)
+           const system: any = await import('../../../../agents/core/index.js').then(m => m.createCognitiveSystem());
+           finalState = await system.supervisor.run(jobId, target, null, null, config);
+        }
 
         // Try to upload screenshots found in the state
         await uploadScreenshotsToS3(finalState, jobId, agentId || 'cognitive-supervisor');
