@@ -53,13 +53,14 @@ export class DetectPlayerSkill extends Skill {
     const isCloudflare = protection === 'cloudflare';
     const isTownNews = protection === 'townnews';
 
-    let browser, cleanup;
-    
+    let browser, browserContext, cleanup;
+
     if (context && context.sharedBrowser) {
       browser = context.sharedBrowser.browser;
+      browserContext = context.sharedBrowser.browserContext;
       cleanup = async () => {};
     } else {
-      ({ browser, cleanup } = await launchForUrl(urls[0]));
+      ({ browser, browserContext, cleanup } = await launchForUrl(urls[0]));
     }
 
     const savedConsoleLog = console.log;
@@ -72,20 +73,26 @@ export class DetectPlayerSkill extends Skill {
         }
       };
 
-      let browserContext, page;
+      let page;
       if (isCloudflare || isTownNews) {
+        // For Cloudflare/TownNews: use returned context if available, otherwise create new
+        if (browserContext) {
+          await browserContext.close().catch(() => {});
+        }
         browserContext = await browser.newContext({
           userAgent: INSTAREAD_USER_AGENT,
           ignoreHTTPSErrors: true
         });
         await applyStealthScripts(browserContext);
       } else {
-        // Always create a fresh context — reused contexts may lack ignoreHTTPSErrors.
-        browserContext = await browser.newContext({
-          userAgent: INSTAREAD_USER_AGENT,
-          ignoreHTTPSErrors: true,
-          viewport: { width: 1280, height: 720 }
-        });
+        // For PerimeterX (thehill.com): use the context from launch (already has all flags set)
+        if (!browserContext) {
+          browserContext = await browser.newContext({
+            userAgent: INSTAREAD_USER_AGENT,
+            ignoreHTTPSErrors: true,
+            viewport: { width: 1280, height: 720 }
+          });
+        }
       }
       if (context?.discoveryCookies?.length && isCloudflare) {
         try {
