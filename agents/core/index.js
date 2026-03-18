@@ -15,6 +15,13 @@ export * from './memory/index.js';
 export { QAParentAgent } from './agents/QAParentAgent.js';
 export { PromptLoader } from './prompts/PromptLoader.js';
 
+// Export adapters
+export { LegacyAPIAdapter } from './adapters/LegacyAPIAdapter.js';
+
+// Export monitoring
+export { Metrics } from './monitoring/Metrics.js';
+export { Logger } from './monitoring/Logger.js';
+
 // Legacy imports (keeping for backward compatibility)
 import { MemoryService } from './memory/MemoryService.js';
 import { SkillRegistry } from './skills/SkillRegistry.js';

@@ -1,6 +1,7 @@
 /**
  * POST /api/jobs
- * Submit a new job to the Cognitive Agent
+ * Submit a new job to the Cognitive Agent or QA Parent Agent
+ * Supports both old and new API formats with LegacyAPIAdapter
  *
  * GET /api/jobs
  * List recent jobs (Now queries from Supabase if available)
@@ -12,6 +13,28 @@ import { supabase } from '../../../../agents/core/memory/supabase-client.js';
 import { existsSync } from 'fs';
 import path from 'path';
 import { jobRegistry } from '@/lib/jobRegistry';
+
+// Phase 4: New monitoring and adapter classes
+let cachedMonitoring: any = null;
+
+async function getMonitoring() {
+  if (cachedMonitoring) return cachedMonitoring;
+
+  try {
+    const indexPath = path.resolve(process.cwd(), 'agents', 'core', 'index.js');
+    const mod = await import(/* webpackIgnore: true */ indexPath);
+    cachedMonitoring = {
+      Metrics: mod.Metrics,
+      Logger: mod.Logger,
+      LegacyAPIAdapter: mod.LegacyAPIAdapter
+    };
+  } catch (error) {
+    console.warn('[API] Failed to load monitoring classes:', error.message);
+    cachedMonitoring = { Metrics: null, Logger: null, LegacyAPIAdapter: null };
+  }
+
+  return cachedMonitoring;
+}
 
 let cachedCognitiveSystem: any = null;
 
@@ -39,23 +62,32 @@ async function uploadScreenshotsToS3(report: any, jobId: string, agentId: string
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { agentId, type, target, config = {} } = body;
+    const { agentId, type, target, config = {}, id, url, depth } = body;
 
-    if (!target) {
+    // Phase 4: Support both old and new API formats
+    const isOldFormat = Boolean(id && url && !agentId && !target);
+    const jobId = isOldFormat ? id : `job-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const targetUrl = isOldFormat ? url : target;
+
+    if (!targetUrl) {
       return Response.json({ success: false, error: 'Missing target URL/Domain' }, { status: 400 });
     }
 
-    const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    // Phase 4: Load monitoring
+    const { Metrics, Logger, LegacyAPIAdapter } = await getMonitoring();
+    const metrics = Metrics ? new Metrics() : null;
+    const logger = Logger ? new Logger({ name: 'API', level: 'info' }) : null;
 
     // Optional: Log to local memory registry for fast dashboard UI updates
     jobRegistry.set(jobId, {
       jobId,
       agentId: agentId || 'cognitive-supervisor',
-      type: type as 'domain' | 'url',
-      target,
+      type: (type as 'domain' | 'url') || 'url',
+      target: targetUrl,
       status: 'queued',
       createdAt: new Date().toISOString(),
       lastUpdate: new Date().toISOString(),
+      isOldFormat: isOldFormat ? true : undefined
     });
 
     // Run asynchronously
@@ -84,24 +116,57 @@ export async function POST(request: Request) {
         });
 
         let finalState;
-        const requestedAgent = registry.getAgent(agentId);
-        
-        if (requestedAgent && typeof requestedAgent.runJob === 'function') {
-           console.log(`[API] Using registered agent: ${requestedAgent.name}`);
-           finalState = await requestedAgent.runJob({ 
-             jobId, 
-             type, 
-             target, 
-             config,
-             // Map callbacks if the agent supports them
-             onStepStart: (name: string, meta: any) => {},
-             onStepEnd: (name: string, res: any) => {}
-           });
+
+        // Phase 4: Use LegacyAPIAdapter for old format, or new agent system for new format
+        if (isOldFormat && LegacyAPIAdapter) {
+          try {
+            logger?.info(`[API] Processing old format job ${jobId}`, { jobId, url });
+
+            // Get the parent agent from registry
+            const parentAgent = registry.getAgent('qa-parent');
+            if (parentAgent && LegacyAPIAdapter) {
+              const adapter = new LegacyAPIAdapter({
+                parentAgent,
+                logger,
+                metrics
+              });
+
+              finalState = await adapter.executeJob({
+                id: jobId,
+                url: targetUrl,
+                depth: depth || 2,
+                options: config
+              });
+
+              logger?.info(`[API] Old format job ${jobId} completed`, { jobId, status: finalState.status });
+            } else {
+              throw new Error('Parent agent not available for legacy adapter');
+            }
+          } catch (adapterError) {
+            logger?.error(`[API] Legacy adapter failed for job ${jobId}`, { jobId, error: adapterError.message });
+            // Fallback to cognitive supervisor
+            const system: any = await getCognitiveSystem();
+            finalState = await system.supervisor.run(jobId, targetUrl, null, null, config);
+          }
         } else {
-           console.log(`[API] Falling back to default Cognitive Supervisor`);
-           // The Cognitive Agent handles its own state graph (config.maxArticles = Mission Payload Depth)
-           const system: any = await getCognitiveSystem();
-           finalState = await system.supervisor.run(jobId, target, null, null, config);
+          // New format - use registered agent or fallback
+          const requestedAgent = registry.getAgent(agentId);
+
+          if (requestedAgent && typeof requestedAgent.runJob === 'function') {
+            logger?.info(`[API] Using registered agent: ${requestedAgent.name}`, { jobId, agentId });
+            finalState = await requestedAgent.runJob({
+              jobId,
+              type,
+              target: targetUrl,
+              config,
+              onStepStart: (name: string, meta: any) => {},
+              onStepEnd: (name: string, res: any) => {}
+            });
+          } else {
+            logger?.info(`[API] Falling back to default Cognitive Supervisor`, { jobId });
+            const system: any = await getCognitiveSystem();
+            finalState = await system.supervisor.run(jobId, targetUrl, null, null, config);
+          }
         }
 
         // Try to upload screenshots found in the state
@@ -110,12 +175,12 @@ export async function POST(request: Request) {
         jobRegistry.set(jobId, {
           ...jobRegistry.get(jobId)!,
           status: 'completed',
-          report: finalState, // Mount the LangGraph state as the report
+          report: finalState,
           lastUpdate: new Date().toISOString(),
           completedAt: new Date().toISOString(),
         });
       } catch (err) {
-        console.error(`[API] Job ${jobId} failed:`, err);
+        logger?.error(`[API] Job ${jobId} failed`, { jobId, error: err instanceof Error ? err.message : String(err) });
         jobRegistry.set(jobId, {
           ...jobRegistry.get(jobId)!,
           status: 'failed',
