@@ -1,105 +1,166 @@
-import { supabase } from './supabase-client.js';
-import { SiteProfileStore } from './SiteProfileStore.js';
-import { TestHistoryStore } from './TestHistoryStore.js';
-import { StrategyCache } from './StrategyCache.js';
-
 /**
- * High-level memory API for agents.
- * Acts as a facade over specific database stores.
+ * MemoryService.js - Coordinator for session and persistent memory
+ *
+ * Provides a unified interface for memory operations across both
+ * session (volatile) and persistent (domain-scoped) memory layers.
+ *
+ * @class MemoryService
  */
 export class MemoryService {
-  constructor() {
-    this.siteProfiles = new SiteProfileStore();
-    this.testHistory = new TestHistoryStore();
-    this.strategies = new StrategyCache();
-  }
-
-  // --- Site Profiles ---
-
   /**
-   * Before testing a site, recall what we know
+   * Creates a memory service
+   *
+   * @param {SessionMemoryStore} sessionStore - Session memory storage
+   * @param {PersistentMemory} persistentMemory - Persistent memory service
+   * @param {Object} [config] - Configuration
+   * @param {Object} [config.logger] - Logger instance
+   * @throws {Error} if stores not provided
    */
-  async recallSiteProfile(domain) {
-    return this.siteProfiles.getProfile(domain);
-  }
+  constructor(sessionStore, persistentMemory, config = {}) {
+    if (!sessionStore) throw new Error('sessionStore required');
+    if (!persistentMemory) throw new Error('persistentMemory required');
 
-  /**
-   * Update the profile of a site based on latest findings
-   */
-  async updateSiteProfile(domain, partialProfile) {
-    return this.siteProfiles.upsertProfile(domain, partialProfile);
-  }
+    this.sessionStore = sessionStore;
+    this.persistentMemory = persistentMemory;
+    this.logger = config.logger || console;
 
-  // --- Test History ---
-
-  /**
-   * After testing, store what we learned
-   */
-  async recordTestResult(jobId, url, result) {
-    return this.testHistory.recordTestResult(jobId, url, result);
+    this.metadata = {
+      type: 'memory-service',
+      version: '1.0.0',
+      createdAt: Date.now()
+    };
   }
 
   /**
-   * Fetch recent outcomes for a domain
+   * Creates a new session memory for a job
+   *
+   * Loads the site profile from persistent memory and creates
+   * a new session with that as the initial target.
+   *
+   * @param {string} jobId - Unique job identifier
+   * @param {string} domain - Target domain
+   * @returns {Promise<SessionMemory>} Created session memory
    */
-  async getRecentResults(domain, limit = 5) {
-    return this.testHistory.getRecentResults(domain, limit);
-  }
-
-  // --- Strategy Cache ---
-
-  /**
-   * Get the best bypass strategy for a domain based on history
-   */
-  async getBestStrategy(domain) {
-    return this.strategies.getBestStrategy(domain);
-  }
-
-  /**
-   * Records the result of a specific bypass strategy
-   */
-  async recordStrategyResult(domain, strategyName, success, durationMs) {
-    return this.strategies.recordStrategyResult(domain, strategyName, success, durationMs);
-  }
-
-  // --- General Agent Memory (Semantic/Episodic) ---
-
-  /**
-   * Store arbitrary agent memory (semantic knowledge)
-   */
-  async remember(agentId, key, value, type = 'semantic') {
-    if (!supabase) return;
+  async createSession(jobId, domain) {
     try {
-      await supabase
-        .from('agent_memory')
-        .upsert({
-          agent_id: agentId,
-          memory_type: type,
-          key,
-          value,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'agent_id, memory_type, key' });
-    } catch (err) {
-      console.warn(`[MemoryService] Failed to remember ${key}: ${err.message}`);
+      // Load site profile from persistent memory
+      const siteProfile = await this.persistentMemory.load(domain);
+
+      // Create session with profile as target
+      const session = this.sessionStore.create(jobId, domain, siteProfile);
+
+      this.logger.debug(`Created session ${jobId} for domain ${domain}`);
+      return session;
+    } catch (error) {
+      this.logger.error(`Failed to create session ${jobId}:`, error);
+      throw error;
     }
   }
 
   /**
-   * Recall arbitrary agent memory
+   * Gets an active session by job ID
+   *
+   * @param {string} jobId - Job ID to look up
+   * @returns {SessionMemory|null} Session or null if not found
    */
-  async recall(agentId, key, type = 'semantic') {
-    if (!supabase) return null;
-    try {
-      const { data } = await supabase
-        .from('agent_memory')
-        .select('value')
-        .eq('agent_id', agentId)
-        .eq('memory_type', type)
-        .eq('key', key)
-        .single();
-      return data ? data.value : null;
-    } catch (err) {
-      return null;
-    }
+  getSession(jobId) {
+    return this.sessionStore.get(jobId);
+  }
+
+  /**
+   * Updates a session with phase results
+   *
+   * @param {string} jobId - Job ID
+   * @param {Partial<SessionMemory>} updates - Updates to apply
+   * @throws {Error} if session not found
+   */
+  updateSession(jobId, updates) {
+    this.sessionStore.update(jobId, updates);
+    this.logger.debug(`Updated session ${jobId}`);
+  }
+
+  /**
+   * Loads a site profile from persistent memory
+   *
+   * @param {string} domain - Domain to load
+   * @returns {Promise<Object>} Site profile
+   */
+  async loadProfile(domain) {
+    return this.persistentMemory.load(domain);
+  }
+
+  /**
+   * Updates persistent memory with job results
+   *
+   * Should be called after synthesis to persist learnings
+   * from the job back to the site profile.
+   *
+   * @param {string} domain - Domain to update
+   * @param {SessionMemory} sessionMem - Session memory with results
+   * @returns {Promise<void>}
+   */
+  async updateProfile(domain, sessionMem) {
+    await this.persistentMemory.update(domain, sessionMem);
+    this.logger.debug(`Updated profile for domain ${domain}`);
+  }
+
+  /**
+   * Clears a session after job completion
+   *
+   * Frees session memory and removes from active sessions.
+   *
+   * @param {string} jobId - Job ID to clear
+   */
+  clearSession(jobId) {
+    this.sessionStore.clear(jobId);
+    this.logger.debug(`Cleared session ${jobId}`);
+  }
+
+  /**
+   * Gets all active sessions
+   *
+   * @returns {Array<SessionMemory>} Array of active sessions
+   */
+  getAllActiveSessions() {
+    return this.sessionStore.getAllActive();
+  }
+
+  /**
+   * Gets count of active sessions
+   *
+   * @returns {number} Number of active sessions
+   */
+  getActiveSessionCount() {
+    return this.sessionStore.getAllActive().length;
+  }
+
+  /**
+   * Clears persistent memory cache for a domain
+   *
+   * @param {string} domain - Domain to clear
+   */
+  clearPersistentCache(domain) {
+    this.persistentMemory.clearCache(domain);
+  }
+
+  /**
+   * Clears all persistent memory cache
+   */
+  clearAllPersistentCache() {
+    this.persistentMemory.clearAllCache();
+  }
+
+  /**
+   * Returns metadata about the memory service
+   *
+   * @returns {Object} Metadata with active session count
+   */
+  getMetadata() {
+    return {
+      ...this.metadata,
+      activeSessions: this.getActiveSessionCount(),
+      sessionStore: this.sessionStore.constructor.name,
+      persistentMemory: this.persistentMemory.constructor.name
+    };
   }
 }

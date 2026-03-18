@@ -1,0 +1,43 @@
+{
+  "domain": "protected.example.com",
+  "description": "Domain protected by Cloudflare WAF",
+  "targetUrl": "https://protected.example.com",
+  "siteProfile": {
+    "domain": "protected.example.com",
+    "successRate": 0.5,
+    "detectionRate": 0.6,
+    "playerTypes": {
+      "html5": 5,
+      "hls": 3,
+      "youtube": 0,
+      "vimeo": 2,
+      "custom": 0
+    },
+    "wafDetected": "cloudflare",
+    "wafBypassSuccessRate": 0.7,
+    "discoveryMethods": ["crawl"],
+    "recommendations": [
+      {
+        "type": "bypass",
+        "description": "Domain has cloudflare WAF; use specific bypass strategy",
+        "confidence": 0.7
+      }
+    ]
+  },
+  "expectedResults": {
+    "articleCount": {
+      "min": 2,
+      "max": 20
+    },
+    "detectionCount": {
+      "min": 1,
+      "max": 10
+    },
+    "playableCount": {
+      "min": 0,
+      "max": 5
+    },
+    "bypassNeeded": true,
+    "bypassSuccess": true
+  }
+}

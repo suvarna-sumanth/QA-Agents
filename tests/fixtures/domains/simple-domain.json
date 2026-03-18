@@ -1,0 +1,41 @@
+{
+  "domain": "example.com",
+  "description": "Simple domain with HTML5 players",
+  "targetUrl": "https://example.com",
+  "siteProfile": {
+    "domain": "example.com",
+    "successRate": 0.8,
+    "detectionRate": 0.9,
+    "playerTypes": {
+      "html5": 10,
+      "hls": 2,
+      "youtube": 1,
+      "vimeo": 0,
+      "custom": 0
+    },
+    "discoveryMethods": ["sitemap", "rss"],
+    "wafDetected": null,
+    "recommendations": [
+      {
+        "type": "discovery",
+        "description": "Sitemap and RSS are effective",
+        "confidence": 0.95
+      }
+    ]
+  },
+  "expectedResults": {
+    "articleCount": {
+      "min": 5,
+      "max": 50
+    },
+    "detectionCount": {
+      "min": 3,
+      "max": 20
+    },
+    "playableCount": {
+      "min": 2,
+      "max": 15
+    },
+    "bypassNeeded": false
+  }
+}
