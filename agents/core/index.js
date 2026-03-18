@@ -11,6 +11,10 @@ export * from './base/index.js';
 // Export all memory classes
 export * from './memory/index.js';
 
+// Export parent agent and prompts
+export { QAParentAgent } from './agents/QAParentAgent.js';
+export { PromptLoader } from './prompts/PromptLoader.js';
+
 // Legacy imports (keeping for backward compatibility)
 import { MemoryService } from './memory/MemoryService.js';
 import { SkillRegistry } from './skills/SkillRegistry.js';
